@@ -8,21 +8,7 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 
 ---
 
-### Week 1 — Agent Runner & A2A Identity  `June W1`
-
-**Goal:** Build and validate the generic agent container in isolation.
-
-- [x] Docker image in Python + LangGraph (WatsonX / `langchain-ibm`)
-- [x] Read `SYSTEM_PROMPT`, `ENABLED_SKILLS`, `WATSONX_*` from environment variables
-- [x] Local Docker test: chat response + tool execution (`bash`, `http_check`) verified end-to-end
-- [x] **`[new]`** Expose `/.well-known/agent.json` — A2A Agent Card endpoint
-- [x] **`[new]`** Inbound A2A task endpoint `POST /a2a/tasks/send` (no external SDK — pure Pydantic, A2A v1.0 wire format)
-
-**Deliverable:** a `docker run` command that starts a working, A2A-capable agent.
-
----
-
-### Week 2 — Control Plane & K8s Provisioner  `June W2`
+### Week 1 — Control Plane & K8s Provisioner  `August W2`
 
 **Goal:** Automate sandbox infrastructure creation.
 
@@ -41,7 +27,7 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 
 ---
 
-### Week 3 — Chat Router & Persistence  `June W3`
+### Week 3 — Chat Router & Persistence  `August W3`
 
 **Goal:** End-to-end streaming communication between user and agent, with full history.
 
@@ -57,7 +43,7 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 
 ---
 
-### Week 4 — Automations, A2A Delegation & CLI  `June W4`
+### Week 4 — Automations, A2A Delegation & CLI  `August W4`
 
 **Goal:** Background tasks, agent cooperation, and a polished CLI.
 

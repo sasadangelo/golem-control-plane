@@ -1,0 +1,16 @@
+src/golem-control-plane/.env
+.venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache/
+.pytest_cache/
+.vscode/
+deploy/
+docs/
+tests/
+.git/
+.gitignore
+.pre-commit-config.yaml
+.secrets.baseline

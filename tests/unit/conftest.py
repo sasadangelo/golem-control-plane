@@ -2,60 +2,70 @@
 # Copyright (c) 2026 Salvatore D'Angelo, Code4Projects
 # Licensed under the MIT License. See LICENSE.md for details.
 # -----------------------------------------------------------------------------
-"""Shared pytest fixtures for unit tests.
+"""Shared fixtures for Control Plane unit tests.
 
-Mocks all heavy third-party modules (langchain_ibm, langchain_core LLM classes,
-langgraph) before any source module is imported, so tests run without credentials
-and without installing the full golem-runner dependency tree.
+Inserts the golem-control-plane source path first and stubs all heavy
+third-party dependencies (kubernetes, dotenv) before any module import.
 """
 
+import os
 import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
+# ---------------------------------------------------------------------------
+# 1. Ensure control-plane source is first on sys.path
+# ---------------------------------------------------------------------------
+_CP_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "src", "golem-control-plane"))
+if _CP_PATH not in sys.path:
+    sys.path.insert(0, _CP_PATH)
 
-def _install_module_mocks() -> None:
-    """Inject lightweight stubs into sys.modules for all runner dependencies."""
-    stubs = [
-        "langchain_ibm",
-        "langgraph",
-        "langgraph.graph",
-        "langgraph.graph.message",
-        "langgraph.prebuilt",
-        "dotenv",
-    ]
-    for name in stubs:
-        if name not in sys.modules:
-            sys.modules[name] = MagicMock()  # type: ignore[assignment]
+# ---------------------------------------------------------------------------
+# 2. Stub all heavy dependencies before any control-plane module is imported
+# ---------------------------------------------------------------------------
+_STUBS = [
+    "kubernetes",
+    "kubernetes.client",
+    "kubernetes.client.rest",
+    "kubernetes.config",
+    "dotenv",
+]
+for _name in _STUBS:
+    if _name not in sys.modules:
+        sys.modules[_name] = MagicMock()  # type: ignore[assignment]
 
-    # dotenv.load_dotenv must be a no-op callable
-    sys.modules["dotenv"].load_dotenv = lambda *a, **kw: None  # type: ignore[attr-defined]
+sys.modules["dotenv"].load_dotenv = lambda *a, **kw: None  # type: ignore[attr-defined]
 
-    # langgraph.graph must expose END and StateGraph
-    lg_graph = sys.modules["langgraph.graph"]
-    lg_graph.END = "END"  # type: ignore[attr-defined]
-    lg_graph.StateGraph = MagicMock()  # type: ignore[attr-defined]
-
-    # langgraph.graph.message must expose add_messages
-    sys.modules["langgraph.graph.message"].add_messages = MagicMock()  # type: ignore[attr-defined]
-
-    # langgraph.prebuilt must expose ToolNode
-    sys.modules["langgraph.prebuilt"].ToolNode = MagicMock()  # type: ignore[attr-defined]
+_k8s_config = sys.modules["kubernetes.config"]
+_k8s_config.load_incluster_config = MagicMock(side_effect=Exception("not in cluster"))  # type: ignore[attr-defined]
+_k8s_config.load_kube_config = MagicMock()  # type: ignore[attr-defined]
+_k8s_config.ConfigException = Exception  # type: ignore[attr-defined]
 
 
-_install_module_mocks()
+# ---------------------------------------------------------------------------
+# 3. Fixtures
+# ---------------------------------------------------------------------------
 
 
 @pytest.fixture()
-def client() -> TestClient:
-    """FastAPI TestClient with agent_executor replaced by a no-op mock."""
-    # Ensure a fresh import of main for each fixture use
-    for mod in ("agent", "main"):
+def mock_provisioner() -> MagicMock:
+    """A fresh MagicMock provisioner for each test."""
+    return MagicMock()
+
+
+@pytest.fixture()
+def cp_client(mock_provisioner: MagicMock) -> TestClient:
+    """TestClient for the Control Plane app with the provisioner fully mocked."""
+    # Pop cached control-plane modules so each test gets a clean slate
+    for mod in ("models", "provisioner", "k8s_provisioner", "card_registry", "app"):
         sys.modules.pop(mod, None)
 
-    with patch("agent.build_agent", return_value=MagicMock()):
-        import main as m
+    with patch("k8s_provisioner._load_k8s_config"):
+        import app as cp_main  # noqa: PLC0415
 
-        return TestClient(m.app)
+        # Inject mock provisioner and reset sandbox store
+        cp_main.provisioner = mock_provisioner  # type: ignore[attr-defined]
+        cp_main._sandboxes.clear()  # type: ignore[attr-defined]
+        return TestClient(cp_main.app)

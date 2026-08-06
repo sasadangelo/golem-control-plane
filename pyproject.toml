@@ -1,54 +1,36 @@
 [project]
-name = "golem"
+name = "golem-control-plane"
 version = "0.1.0"
-description = "A Python project based on python-blueprint"
-readme = "README.md"
-requires-python = ">=3.10,<3.15"
+description = "Golem Control Plane — agent sandbox provisioning and A2A Card Registry"
+requires-python = ">=3.12,<3.15"
 dependencies = [
-  "pydantic>=2.3,<3",
-  "requests>=2.31.0,<3",
-]
-
-[dependency-groups]
-dev = [
-  "bandit>=1.8.6",
-  "coverage>=7.11.0",
-  "detect-secrets>=1.5.0",
-  "fastapi[standard]>=0.110.0",
+  "fastapi>=0.110.0",
+  "uvicorn>=0.28.0",
+  "kubernetes>=29.0.0",
   "httpx>=0.27.0",
-  "langchain-core>=0.1.30",
-  "mypy>=1.18.2",
-  "poethepoet>=0.37.0",
-  "pre-commit>=3.8.0",
-  "pytest>=8.4.2",
-  "radon>=6.0.1",
-  "ruff>=0.8.0",
+  "pydantic>=2.6.0",
+  "python-dotenv>=1.0.0",
 ]
 
-[tool.ruff]
-exclude = [".venv", "src/golem-runner/.venv", "__pycache__", "build", "dist", "*.egg-info"]
-line-length = 120
-target-version = "py310"
-
-[tool.ruff.lint]
-ignore = ["N999"]
-select = ["E", "W", "F", "I", "N", "UP", "B", "C4", "SIM"]
-
-[tool.ruff.lint.isort]
-lines-between-types = 0
-section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
-
-[tool.ruff.format]
-indent-style = "space"
-line-ending = "auto"
-quote-style = "double"
-skip-magic-trailing-comma = false
-
-[tool.mypy]
-explicit_package_bases = true
-mypy_path = ["src/golem-runner", "src/golem-control-plane"]
-ignore_missing_imports = true
-exclude = ["src/golem-runner/.venv", "src/golem-control-plane/.venv"]
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+  "pytest-asyncio>=0.23.0",
+  "httpx>=0.27.0",
+  "ruff>=0.4.0",
+  "mypy>=1.10.0",
+]
 
 [tool.pytest.ini_options]
-pythonpath = ["src/golem-runner", "src/golem-control-plane"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 120
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
