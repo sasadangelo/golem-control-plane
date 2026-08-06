@@ -15,6 +15,7 @@
 | Document | Description |
 |---|---|
 | [Architecture](docs/Architecture.md) | Components, protocols (MCP / A2A), security model, and end-to-end data flow |
+| [Golem Runner](docs/GolemRunner.md) | Agent Runner — generic Docker container, skills catalogue, local test guide |
 | [Roadmap](docs/Roadmap.md) | 4-week MVP sprint plan, delivery matrix, and post-MVP milestones |
 
 ---

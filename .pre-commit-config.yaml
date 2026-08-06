@@ -29,7 +29,7 @@ repos:
     rev: 1.8.6
     hooks:
       - id: bandit
-        args: [ "--skip", "B101" ]
+        args: [ "--skip", "B101", "--exclude", ".venv,src/golem-runner/.venv" ]
 
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0

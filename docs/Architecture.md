@@ -1,5 +1,7 @@
 # Golem — Architecture
 
+> **Component deep-dives:** [Golem Runner (Agent Runner)](GolemRunner.md)
+
 Golem is a **Kubernetes-native Agent-as-a-Service platform**.  
 It lets you create isolated AI agents on demand, chat with them in streaming, let them cooperate with each other, and run autonomous background tasks — all from a single CLI or web interface.
 
@@ -34,6 +36,8 @@ The central brain of the platform. It is the only component exposed outside the 
 Each agent lives in its own isolated Kubernetes Namespace. The sandbox contains a single **Agent Runner Pod** plus the security rules that protect both the agent and the rest of the cluster.
 
 #### Agent Runner Pod  `Docker · LangGraph · a2a-sdk · mcp-sdk`
+
+> Full implementation guide: [GolemRunner.md](GolemRunner.md)
 
 A **single generic Docker image** that is parameterised entirely at runtime via environment variables:
 

@@ -23,12 +23,12 @@ dev = [
 ]
 
 [tool.ruff]
-exclude = [".venv", "__pycache__", "build", "dist", "*.egg-info"]
+exclude = [".venv", "src/golem-runner/.venv", "__pycache__", "build", "dist", "*.egg-info"]
 line-length = 120
 target-version = "py310"
 
 [tool.ruff.lint]
-ignore = []
+ignore = ["N999"]
 select = ["E", "W", "F", "I", "N", "UP", "B", "C4", "SIM"]
 
 [tool.ruff.lint.isort]
@@ -41,5 +41,11 @@ line-ending = "auto"
 quote-style = "double"
 skip-magic-trailing-comma = false
 
+[tool.mypy]
+explicit_package_bases = true
+mypy_path = "src/golem-runner"
+ignore_missing_imports = true
+exclude = ["src/golem-runner/.venv"]
+
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src/golem-runner"]
