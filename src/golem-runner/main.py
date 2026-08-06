@@ -3,7 +3,8 @@ import uuid
 from typing import Any
 
 from agent import agent_executor
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 
@@ -34,10 +35,14 @@ AGENT_CARD: dict[str, Any] = {
 }
 
 
-@app.get("/.well-known/agent.json")
-async def agent_card():
-    """A2A Agent Card — identifies this agent to the Control Plane and peer agents."""
-    return AGENT_CARD
+# Starlette blocks paths with dot-prefixed segments (e.g. /.well-known/) via its
+# routing internals, so we intercept the request with a middleware before routing.
+@app.middleware("http")
+async def well_known_middleware(request: Request, call_next: Any) -> Response:
+    """Serve /.well-known/agent.json before Starlette routing drops the request."""
+    if request.url.path == "/.well-known/agent.json":
+        return JSONResponse(content=AGENT_CARD)
+    return await call_next(request)
 
 
 # ---------------------------------------------------------------------------
