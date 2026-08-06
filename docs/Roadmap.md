@@ -12,11 +12,11 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 
 **Goal:** Build and validate the generic agent container in isolation.
 
-- [ ] Docker image in Python + LangGraph
-- [ ] Read `SYSTEM_PROMPT`, `ENABLED_TOOLS`, `AGENT_ID` from environment variables
-- [ ] Local Docker test: streaming chat response + MCP tool execution
-- [ ] **`[new]`** Expose `/.well-known/agent.json` — A2A Agent Card endpoint
-- [ ] **`[new]`** Integrate `a2a-sdk` for inbound peer task reception
+- [x] Docker image in Python + LangGraph (WatsonX / `langchain-ibm`)
+- [x] Read `SYSTEM_PROMPT`, `ENABLED_SKILLS`, `WATSONX_*` from environment variables
+- [x] Local Docker test: chat response + tool execution (`bash`, `http_check`) verified end-to-end
+- [x] **`[new]`** Expose `/.well-known/agent.json` — A2A Agent Card endpoint
+- [x] **`[new]`** Inbound A2A task endpoint `POST /a2a/tasks/send` (no external SDK — pure Pydantic, A2A v1.0 wire format)
 
 **Deliverable:** a `docker run` command that starts a working, A2A-capable agent.
 
@@ -75,7 +75,7 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 | Component | W1 | W2 | W3 | W4 |
 |---|:---:|:---:|:---:|:---:|
 | Agent Runner (Docker + LangGraph) | ✅ | — | — | Cron |
-| A2A Agent Card + `a2a-sdk` **`[new]`** | ✅ | — | Broker | SendMsg |
+| A2A Agent Card + inbound tasks **`[new]`** | ✅ | — | Broker | SendMsg |
 | Control Plane (FastAPI) | — | ✅ | Chat WS | Helm |
 | K8s Provisioner (Python k8s-client) | — | ✅ | — | — |
 | NetworkPolicy + TTL GC **`[new]`** | — | ✅ | — | — |
@@ -128,9 +128,13 @@ The agent pod continues running autonomously in its sandbox. If the `/health` en
 
 | Phase | Item |
 |---|---|
+| Phase 2 | Extract `golem-agent-sdk` (A2A lifecycle + identity) as standalone internal library |
+| Phase 2 | Extract `golem-framework` (LLM abstraction) as standalone internal library |
 | Phase 2 | Vault / external secret store integration |
 | Phase 2 | gVisor / Kata Containers for dynamic code execution |
 | Phase 2 | Go CLI binary (distributable without Python runtime) |
+| Phase 3 | `golem-framework` AutoGen backend |
+| Phase 3 | `golem-framework` CrewAI backend |
 | Phase 3 | Multi-tenant isolation and RBAC |
 | Phase 3 | Docker Compose `Provisioner` backend for single-machine development |
 | Phase 3 | Web UI for agent management |

@@ -40,6 +40,10 @@ src/golem-runner/
 | `WATSONX_URL` | ✅ | `https://us-south.ml.cloud.ibm.com` | WatsonX endpoint URL |
 | `WATSONX_PROJECT_ID` | ✅ | — | WatsonX project ID |
 | `WATSONX_MODEL_ID` | | `openai/gpt-oss-120b` | Model identifier |
+| `AGENT_ID` | | `golem-agent-<random>` | Unique agent identifier (used in Agent Card and routing) |
+| `AGENT_NAME` | | `"Golem Agent Runner"` | Human-readable agent name |
+| `AGENT_DESCRIPTION` | | `"Generic automation agent…"` | Agent description (used in Agent Card) |
+| `AGENT_ENDPOINT` | | `http://localhost:8000` | Public URL of this container (used in Agent Card) |
 | `SYSTEM_PROMPT` | | `"You are a helpful generic automation agent."` | Agent persona and instructions |
 | `ENABLED_SKILLS` | | `""` (no tools) | Comma-separated skill IDs to activate (see table below) |
 
@@ -54,9 +58,49 @@ src/golem-runner/
 
 ## HTTP API
 
+### `GET /.well-known/agent.json`
+
+A2A Agent Card — used by the Control Plane to register the agent and by peer agents for discovery.
+
+```json
+{
+  "id": "golem-agent-001",
+  "name": "Golem Agent Runner",
+  "description": "Generic automation agent powered by Golem.",
+  "version": "0.1.0",
+  "endpoint": "http://agent-001.sandbox.svc:8000",
+  "capabilities": { "streaming": false, "pushNotifications": false },
+  "skills": [{ "id": "bash", "name": "bash" }, { "id": "http_check", "name": "http_check" }]
+}
+```
+
+### `POST /a2a/tasks/send`
+
+A2A inbound task reception — accepts a task delegated by a peer agent.
+
+**Request**
+```json
+{
+  "id": "task-abc123",
+  "message": {
+    "role": "user",
+    "parts": [{ "type": "text", "text": "Check if https://google.com is reachable" }]
+  }
+}
+```
+
+**Response**
+```json
+{
+  "id": "task-abc123",
+  "status": { "state": "completed" },
+  "artifacts": [{ "parts": [{ "type": "text", "text": "Status Code: 301 ..." }] }]
+}
+```
+
 ### `POST /chat`
 
-Send a message to the agent and receive a reply.
+Human-facing chat endpoint.
 
 **Request**
 ```json

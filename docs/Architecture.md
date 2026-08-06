@@ -125,6 +125,40 @@ If `Log-Analyzer` is compromised, it cannot reach any other pod or the public in
 
 ---
 
+## Internal Libraries — Post-MVP Vision
+
+The Agent Runner container today embeds all logic directly (MVP approach). As the platform matures, two internal libraries will be extracted to keep the runner thin and the platform extensible.
+
+### `golem-agent-sdk` — A2A lifecycle + platform identity
+
+Everything related to the agent's identity and communication with the Golem platform:
+
+| Responsibility | Detail |
+|---|---|
+| **Agent Card** | Generates and serves `/.well-known/agent.json` |
+| **A2A client** | Delegates tasks to peer agents |
+| **A2A server** | Receives inbound task delegations from peers |
+| **Lifecycle** | Heartbeat, registration with Control Plane, graceful shutdown |
+| **Config** | Standardised reading of Golem environment variables |
+
+Framework-agnostic — imported by any runner regardless of the LLM backend.
+
+### `golem-framework` — LLM framework abstraction
+
+A thin portability layer that hides the underlying agentic framework behind a common interface, allowing the runner to swap or add LLM backends without rewriting business logic:
+
+```
+golem-framework
+└── backends/
+    ├── langgraph.py   ← MVP
+    ├── autogen.py     ← future
+    └── crewai.py      ← future
+```
+
+For the MVP both libraries live as embedded modules inside the monorepo. They become standalone PyPI packages when the platform stabilises (Phase 2).
+
+---
+
 ## Provisioner Abstraction
 
 The K8s Provisioner is accessed through a `Provisioner.create_sandbox()` interface. The only implementation for MVP is Kubernetes, but the abstraction allows adding a lightweight Docker Compose backend later (e.g. for single-machine development) without rewriting the Control Plane.
