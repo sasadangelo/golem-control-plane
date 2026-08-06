@@ -1,3 +1,9 @@
+# -----------------------------------------------------------------------------
+# Copyright (c) 2026 Salvatore D'Angelo, Code4Projects
+# Licensed under the MIT License. See LICENSE.md for details.
+# -----------------------------------------------------------------------------
+"""Golem Agent Runner — FastAPI application exposing A2A and chat endpoints."""
+
 import os
 import uuid
 from typing import Any

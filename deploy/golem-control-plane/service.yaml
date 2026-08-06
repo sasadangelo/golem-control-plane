@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: golem-control-plane
+  namespace: golem-system
+  labels:
+    app: golem-control-plane
+    app.kubernetes.io/part-of: golem
+spec:
+  # NodePort exposes the Control Plane on the Minikube node IP for local testing.
+  # Switch to ClusterIP + Ingress for production deployments.
+  type: NodePort
+  selector:
+    app: golem-control-plane
+  ports:
+    - name: http
+      port: 9000
+      targetPort: 9000
+      nodePort: 30900

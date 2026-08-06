@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: golem-control-plane
+  namespace: golem-system
+  labels:
+    app: golem-control-plane
+    app.kubernetes.io/part-of: golem
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: golem-control-plane
+  template:
+    metadata:
+      labels:
+        app: golem-control-plane
+    spec:
+      serviceAccountName: golem-control-plane
+      containers:
+        - name: control-plane
+          image: localhost/golem-control-plane:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9000
+          env:
+            - name: RUNNER_IMAGE
+              value: "localhost/golem-runner:v1"
+            - name: GC_INTERVAL_SECONDS
+              value: "60"
+            - name: WATSONX_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: golem-watsonx-credentials
+                  key: WATSONX_API_KEY
+            - name: WATSONX_URL
+              valueFrom:
+                secretKeyRef:
+                  name: golem-watsonx-credentials
+                  key: WATSONX_URL
+            - name: WATSONX_PROJECT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: golem-watsonx-credentials
+                  key: WATSONX_PROJECT_ID
+            - name: WATSONX_MODEL_ID
+              valueFrom:
+                secretKeyRef:
+                  name: golem-watsonx-credentials
+                  key: WATSONX_MODEL_ID
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

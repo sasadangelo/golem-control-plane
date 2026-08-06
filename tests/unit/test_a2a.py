@@ -1,3 +1,7 @@
+# -----------------------------------------------------------------------------
+# Copyright (c) 2026 Salvatore D'Angelo, Code4Projects
+# Licensed under the MIT License. See LICENSE.md for details.
+# -----------------------------------------------------------------------------
 """Unit tests for the A2A inbound task endpoint (POST /a2a/tasks/send)."""
 
 from unittest.mock import MagicMock

@@ -14,3 +14,6 @@ __pycache__/
 # Ruff
 .ruff_cache/
 
+
+# K8s secrets (never commit real values)
+deploy/**/secret.yaml

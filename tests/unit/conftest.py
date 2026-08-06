@@ -1,3 +1,7 @@
+# -----------------------------------------------------------------------------
+# Copyright (c) 2026 Salvatore D'Angelo, Code4Projects
+# Licensed under the MIT License. See LICENSE.md for details.
+# -----------------------------------------------------------------------------
 """Shared pytest fixtures for unit tests.
 
 Mocks all heavy third-party modules (langchain_ibm, langchain_core LLM classes,

@@ -1,3 +1,9 @@
+# -----------------------------------------------------------------------------
+# Copyright (c) 2026 Salvatore D'Angelo, Code4Projects
+# Licensed under the MIT License. See LICENSE.md for details.
+# -----------------------------------------------------------------------------
+"""LangGraph agent with dynamic tool loading from environment variables."""
+
 import os
 from typing import Annotated, Literal
 

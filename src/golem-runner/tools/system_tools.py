@@ -1,3 +1,9 @@
+# -----------------------------------------------------------------------------
+# Copyright (c) 2026 Salvatore D'Angelo, Code4Projects
+# Licensed under the MIT License. See LICENSE.md for details.
+# -----------------------------------------------------------------------------
+"""System tool: execute bash commands inside the container sandbox."""
+
 import subprocess  # nosec B404
 
 from langchain_core.tools import tool

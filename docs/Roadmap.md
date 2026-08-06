@@ -26,16 +26,18 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 
 **Goal:** Automate sandbox infrastructure creation.
 
-- [ ] FastAPI skeleton: `POST /agents`, `GET /agents/{id}/status`
-- [ ] Python `kubernetes-client` integration (replaces client-go)
-- [ ] Create isolated Namespace + Pod per agent
-- [ ] Apply `ResourceQuota` (CPU/RAM limits)
-- [ ] **`[new]`** `NetworkPolicy`: default-deny egress, whitelist MCP endpoints + A2A peer pods
-- [ ] **`[new]`** Agent Card Registry: collect and verify cards when pod reaches `Ready`
-- [ ] **`[new]`** TTL-based sandbox garbage collection
-- [ ] **`[new]`** `Provisioner.create_sandbox()` abstract interface (K8s impl only for now)
+- [x] FastAPI skeleton: `POST /agents`, `GET /agents/{id}/status`, `DELETE /agents/{id}`, `GET /agents`
+- [x] Python `kubernetes-client` integration
+- [x] Create isolated Namespace + Pod per agent
+- [x] Apply `ResourceQuota` (CPU/RAM limits)
+- [x] **`[new]`** `NetworkPolicy`: allow HTTPS (443) + DNS (53) egress only — deny all else
+- [x] **`[new]`** Agent Card Registry: fetch and store card when pod reaches `Running`
+- [x] **`[new]`** TTL-based sandbox garbage collection
+- [x] **`[new]`** `Provisioner.create_sandbox()` abstract interface (K8s impl only for now)
+- [x] Local end-to-end test: Control Plane as local process → creates pods in Minikube ✅ pod Running in < 10 s
+- [x] **`[new]`** Deploy Control Plane inside Minikube (`golem-system` namespace + ServiceAccount + RBAC) ✅
 
-**Deliverable:** `POST /agents` creates a live, isolated sandbox pod in under 10 seconds.
+**Deliverable:** `POST /agents` creates a live, isolated sandbox pod in under 10 seconds. ✅
 
 ---
 
@@ -130,11 +132,14 @@ The agent pod continues running autonomously in its sandbox. If the `/health` en
 |---|---|
 | Phase 2 | Extract `golem-agent-sdk` (A2A lifecycle + identity) as standalone internal library |
 | Phase 2 | Extract `golem-framework` (LLM abstraction) as standalone internal library |
+| Phase 2 | Stateful Sandbox: PVC-backed agent pod for persistent state across sessions (e.g. code-assistant working on a Git repo) |
 | Phase 2 | Vault / external secret store integration |
 | Phase 2 | gVisor / Kata Containers for dynamic code execution |
 | Phase 2 | Go CLI binary (distributable without Python runtime) |
+| Phase 2 | **Provisioner Stage 1**: `DockerComposeProvisioner` for single-machine dev; `OpenShiftProvisioner` extending `KubernetesProvisioner` (Project + Route + SCC delta) |
 | Phase 3 | `golem-framework` AutoGen backend |
 | Phase 3 | `golem-framework` CrewAI backend |
 | Phase 3 | Multi-tenant isolation and RBAC |
-| Phase 3 | Docker Compose `Provisioner` backend for single-machine development |
+| Phase 3 | **Provisioner Stage 2 — IAL**: Infrastructure Profiles (named bundles of backend + quota + NetworkPolicy) selectable via `PROVISIONER_BACKEND` env var |
+| Phase 3 | **Provisioner Stage 3 — Operator**: `GolemAgent` CRD + Kubernetes Operator for GitOps-style agent management (coexists with REST API) |
 | Phase 3 | Web UI for agent management |

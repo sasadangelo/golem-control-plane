@@ -1,6 +1,6 @@
 # Golem — Architecture
 
-> **Component deep-dives:** [Golem Runner (Agent Runner)](GolemRunner.md)
+> **Component deep-dives:** [Golem Runner](GolemRunner.md) · [Golem Control Plane](GolemControlPlane.md) · [Security Model](Security.md)
 
 Golem is a **Kubernetes-native Agent-as-a-Service platform**.  
 It lets you create isolated AI agents on demand, chat with them in streaming, let them cooperate with each other, and run autonomous background tasks — all from a single CLI or web interface.
@@ -49,9 +49,16 @@ A **single generic Docker image** that is parameterised entirely at runtime via 
 
 The runner:
 - Executes a **LangGraph** agentic loop (reasoning + tool calls)
-- Publishes an **A2A Agent Card** at `/.well-known/agent.json` (signed, A2A v1.0)
+- Publishes an **A2A Agent Card** at `/.well-known/agent.json` (A2A v1.0)
 - Accepts inbound A2A task delegation from peer agents
 - Supports **background tasks**: Cron, Timer, and Webhook triggers that run independently of any open chat session
+
+Two sandbox modes are supported (second is post-MVP):
+
+| Mode | Storage | Lifecycle | Use case |
+|---|---|---|---|
+| **Ephemeral** *(MVP)* | No persistent volume | Created on `POST /agents`, deleted after TTL | Diagnostics, Q&A, one-shot automations |
+| **Stateful** *(Phase 2)* | PVC mounted at `/workspace` | Lives until explicitly deleted | Code assistant, Git repo work, multi-session tasks |
 
 ---
 
@@ -90,13 +97,16 @@ golem agent tasks --agent log-analyzer-001
 
 ## Security & Isolation
 
+> Full security model, RBAC design, and hardening roadmap: **[Security.md](Security.md)**
+
 | Control | Detail |
 |---|---|
-| **NetworkPolicy** | Default-deny all egress per sandbox. Whitelist added by the Provisioner for: declared MCP server endpoints + authorised A2A peer pods only |
-| **ResourceQuota** | CPU and RAM hard limits per Namespace, set at pod creation |
-| **Secrets** | K8s Secrets at MVP; migration path to Vault or an external secret store is planned — credentials are never embedded in image layers |
-| **Sandbox GC** | A TTL annotation is set on each pod at creation; an idle sandbox is deleted automatically to prevent Namespace sprawl |
-| **Runtime isolation** | gVisor / Kata Containers are optional at MVP but recommended when agents execute dynamically generated code |
+| **K8s RBAC** | Control Plane runs as a dedicated `ServiceAccount` with a `ClusterRole` granting only the minimum verbs needed (Namespace + Pod + ResourceQuota + NetworkPolicy). Agent Runner pods have no K8s identity. |
+| **NetworkPolicy** | Per-sandbox allowlist: HTTPS (443) + DNS (53) egress only — all other traffic denied. |
+| **ResourceQuota** | CPU and RAM hard limits per sandbox Namespace — a rogue agent cannot starve the cluster. |
+| **Secrets** | K8s Secrets at MVP, never embedded in image layers. Migration path to Vault / External Secrets Operator planned for Phase 2. |
+| **Sandbox GC** | TTL annotation on each pod — the Control Plane GC loop deletes idle sandboxes automatically. |
+| **Runtime isolation** | gVisor / Kata Containers recommended for dynamic code execution (Phase 3). |
 
 ---
 
@@ -161,7 +171,7 @@ For the MVP both libraries live as embedded modules inside the monorepo. They be
 
 ## Provisioner Abstraction
 
-The K8s Provisioner is accessed through a `Provisioner.create_sandbox()` interface. The only implementation for MVP is Kubernetes, but the abstraction allows adding a lightweight Docker Compose backend later (e.g. for single-machine development) without rewriting the Control Plane.
+The K8s Provisioner is accessed through a `Provisioner.create_sandbox()` interface. The only implementation for MVP is Kubernetes, but the abstraction allows adding new backends without rewriting the Control Plane.
 
 ```python
 class Provisioner(ABC):
@@ -171,3 +181,48 @@ class Provisioner(ABC):
     @abstractmethod
     def delete_sandbox(self, handle: SandboxHandle) -> None: ...
 ```
+
+The three evolution stages planned post-MVP:
+
+### Stage 1 — Multi-backend Provisioner  `Phase 2`
+
+Additional concrete implementations of the same `Provisioner` ABC, selectable via a `PROVISIONER_BACKEND` environment variable:
+
+| Backend | Use case |
+|---|---|
+| `kubernetes` *(MVP)* | Any K8s cluster (Minikube, Kind, cloud-managed) |
+| `docker-compose` | Single-machine development; no K8s required |
+| `openshift` | Red Hat OpenShift (Project + Route + SCC delta) |
+
+The `OpenShiftProvisioner` extends `KubernetesProvisioner` and overrides only the three OpenShift-specific resources (`Project` instead of `Namespace`, `Route` instead of `Ingress`, SCC annotation on the ServiceAccount). All other provisioning logic is inherited unchanged.
+
+### Stage 2 — Infrastructure Abstraction Layer (IAL) with Profiles  `Phase 3`
+
+The Control Plane gains a concept of **Infrastructure Profiles** — named bundles of backend + resource policy + network rules stored as ConfigMaps. An operator selects a profile at deploy time; the Control Plane resolves the correct `Provisioner` implementation and applies the profile's defaults to every sandbox it creates.
+
+```
+IAL Profiles
+├── local-dev      → DockerComposeProvisioner, no quota, no NetworkPolicy
+├── k8s-standard   → KubernetesProvisioner, 1 CPU / 512 MB, default-deny egress
+└── openshift-prod → OpenShiftProvisioner, 2 CPU / 1 GB, SCC restricted
+```
+
+This removes all backend-specific logic from the Control Plane's business layer.
+
+### Stage 3 — Operator Pattern  `Phase 3`
+
+A Kubernetes Operator (`GolemAgent` CRD) replaces the REST `POST /agents` workflow for cloud-native environments. The operator reconciles the desired state declared in a YAML manifest into the running sandbox, enabling GitOps-style agent management.
+
+```yaml
+apiVersion: golem.io/v1alpha1
+kind: GolemAgent
+metadata:
+  name: log-analyzer
+spec:
+  systemPrompt: "Scan application logs for HTTP 500 errors."
+  enabledSkills: ["bash", "http_check"]
+  ttlSeconds: 3600
+  infraProfile: k8s-standard
+```
+
+The REST API and the Operator coexist: both drive the same `Provisioner` layer.

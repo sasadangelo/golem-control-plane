@@ -46,9 +46,9 @@ skip-magic-trailing-comma = false
 
 [tool.mypy]
 explicit_package_bases = true
-mypy_path = "src/golem-runner"
+mypy_path = ["src/golem-runner", "src/golem-control-plane"]
 ignore_missing_imports = true
-exclude = ["src/golem-runner/.venv"]
+exclude = ["src/golem-runner/.venv", "src/golem-control-plane/.venv"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src/golem-runner"]
+pythonpath = ["src/golem-runner", "src/golem-control-plane"]
