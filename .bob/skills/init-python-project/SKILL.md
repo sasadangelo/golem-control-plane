@@ -75,19 +75,21 @@ Then remind the user of the next steps:
 1. `cd <project-name>`
 2. `uv python install 3.14 && uv python pin 3.14`
 3. `uv sync --group dev`
+4. `uv run pre-commit install`
+5. `uv run pytest tests`
+6. `git init`
+7. `git add .`
+8. `git commit -m "chore: initial project scaffold"`
+9. `git remote add origin <remote-url>`
+10. `git push -u origin main`
+
+**If scaffolded in the workspace root:**
+1. `uv python install 3.14 && uv python pin 3.14`
+2. `uv sync --group dev`
+3. `uv run pre-commit install`
 4. `uv run pytest tests`
 5. `git init`
 6. `git add .`
 7. `git commit -m "chore: initial project scaffold"`
 8. `git remote add origin <remote-url>`
 9. `git push -u origin main`
-
-**If scaffolded in the workspace root:**
-1. `uv python install 3.14 && uv python pin 3.14`
-2. `uv sync --group dev`
-3. `uv run pytest tests`
-4. `git init`
-5. `git add .`
-6. `git commit -m "chore: initial project scaffold"`
-7. `git remote add origin <remote-url>`
-8. `git push -u origin main`
