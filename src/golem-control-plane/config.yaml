@@ -11,3 +11,11 @@ llm:
   model: "openai/gpt-oss-120b"
   project_id: "9def6989-c276-4042-8fc2-5b77a8e56ade"
   url: "https://us-south.ml.cloud.ibm.com"
+
+log:
+  level: "INFO"
+  console: true
+  file: "logs/golem-control-plane.log"
+  rotation: "10 MB"
+  retention: "7 days"
+  compression: "zip"

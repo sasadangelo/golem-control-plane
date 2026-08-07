@@ -17,3 +17,5 @@ __pycache__/
 
 # K8s secrets (never commit real values)
 deploy/**/secret.yaml
+
+logs/

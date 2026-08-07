@@ -4,13 +4,13 @@
 # -----------------------------------------------------------------------------
 """Agent Card Registry — collects and stores A2A Agent Cards from running pods."""
 
-import logging
 from typing import Any
 
 import httpx
+from core.log import LoggerManager
 from models import SandboxHandle
 
-logger = logging.getLogger(__name__)
+logger = LoggerManager.get_logger("CardRegistry")
 
 # In-memory registry for MVP. Replace with PostgreSQL in Week 3.
 _registry: dict[str, dict[str, Any]] = {}
@@ -33,10 +33,10 @@ def fetch_and_register(handle: SandboxHandle) -> dict[str, Any] | None:
         card: dict[str, Any] = response.json()
         _registry[handle.agent_id] = card
         handle.agent_card = card
-        logger.info("Agent Card registered for %s.", handle.agent_id)
+        logger.info(f"Agent Card registered for agent '{handle.agent_id}'")
         return card
     except Exception as e:
-        logger.warning("Could not fetch Agent Card for %s: %s", handle.agent_id, e)
+        logger.warning(f"Could not fetch Agent Card for agent '{handle.agent_id}': {e}")
         return None
 
 
@@ -61,4 +61,4 @@ def list_cards() -> list[dict[str, Any]]:
 def deregister(agent_id: str) -> None:
     """Remove an Agent Card from the registry."""
     _registry.pop(agent_id, None)
-    logger.info("Agent Card deregistered for %s.", agent_id)
+    logger.info(f"Agent Card deregistered for agent '{agent_id}'")

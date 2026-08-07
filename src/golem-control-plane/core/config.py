@@ -59,6 +59,19 @@ class LLMConfig(BaseSettings):
     )
 
 
+class LogConfig(BaseSettings):
+    """Logging settings."""
+
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(extra="ignore")
+
+    level: str = Field(default="INFO", description="Minimum log level.")
+    console: bool = Field(default=True, description="Whether to log to stdout.")
+    file: str = Field(default="logs/golem-control-plane.log", description="Path to the log file.")
+    rotation: str = Field(default="10 MB", description="Log file rotation policy.")
+    retention: str = Field(default="7 days", description="Log file retention policy.")
+    compression: str = Field(default="zip", description="Compression format for rotated files.")
+
+
 class Settings(BaseSettings):
     """Root settings — single source of truth for the entire application."""
 
@@ -72,6 +85,7 @@ class Settings(BaseSettings):
 
     control_plane: ControlPlaneConfig = Field(default_factory=ControlPlaneConfig, alias="control-plane")
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    log: LogConfig = Field(default_factory=LogConfig)
 
     @classmethod
     def settings_customise_sources(

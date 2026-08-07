@@ -4,26 +4,26 @@
 # -----------------------------------------------------------------------------
 """Kubernetes implementation of the Provisioner interface."""
 
-import logging
 import time
 
 from core.config import settings
+from core.log import LoggerManager
 from kubernetes import client, config  # type: ignore[import-untyped]
 from kubernetes.client.rest import ApiException  # type: ignore[import-untyped]
 from models import AgentSpec, SandboxHandle, SandboxStatus
 from provisioner import Provisioner
 
-logger = logging.getLogger(__name__)
+logger = LoggerManager.get_logger("KubernetesProvisioner")
 
 
 def _load_k8s_config() -> None:
     """Load kubeconfig from in-cluster env or local ~/.kube/config."""
     try:
         config.load_incluster_config()
-        logger.info("Loaded in-cluster K8s config.")
+        logger.info("Loaded in-cluster K8s config")
     except config.ConfigException:
         config.load_kube_config()
-        logger.info("Loaded local kubeconfig.")
+        logger.info("Loaded local kubeconfig")
 
 
 class KubernetesProvisioner(Provisioner):
@@ -42,7 +42,7 @@ class KubernetesProvisioner(Provisioner):
     def create_sandbox(self, spec: AgentSpec) -> SandboxHandle:
         """Create Namespace, ResourceQuota, NetworkPolicy, ConfigMap and Pod for the agent."""
         handle = SandboxHandle(ttl_seconds=spec.ttl_seconds)
-        logger.info("Creating sandbox %s (ttl=%ds)", handle.agent_id, spec.ttl_seconds)
+        logger.info(f"Creating sandbox '{handle.agent_id}' (ttl={spec.ttl_seconds}s)")
 
         self._create_namespace(handle, spec)
         self._apply_resource_quota(handle)
@@ -54,11 +54,12 @@ class KubernetesProvisioner(Provisioner):
 
     def delete_sandbox(self, handle: SandboxHandle) -> None:
         """Delete the entire Namespace (cascades to all resources inside it)."""
-        logger.info("Deleting sandbox namespace %s", handle.namespace)
+        logger.info(f"Deleting sandbox namespace '{handle.namespace}'")
         try:
             self._core.delete_namespace(handle.namespace)
         except ApiException as e:
             if e.status != 404:
+                logger.error(f"Failed to delete namespace '{handle.namespace}': {e}")
                 raise
 
     def get_status(self, handle: SandboxHandle) -> SandboxHandle:
@@ -92,7 +93,7 @@ class KubernetesProvisioner(Provisioner):
             )
         )
         self._core.create_namespace(ns)
-        logger.debug("Namespace %s created.", handle.namespace)
+        logger.debug(f"Namespace '{handle.namespace}' created")
 
     def _apply_resource_quota(self, handle: SandboxHandle) -> None:
         quota = client.V1ResourceQuota(
@@ -102,7 +103,7 @@ class KubernetesProvisioner(Provisioner):
             ),
         )
         self._core.create_namespaced_resource_quota(handle.namespace, quota)
-        logger.debug("ResourceQuota applied to %s.", handle.namespace)
+        logger.debug(f"ResourceQuota applied to namespace '{handle.namespace}'")
 
     def _apply_network_policy(self, handle: SandboxHandle) -> None:
         policy = client.V1NetworkPolicy(
@@ -111,12 +112,9 @@ class KubernetesProvisioner(Provisioner):
                 pod_selector=client.V1LabelSelector(),
                 policy_types=["Egress"],
                 egress=[
-                    # Allow HTTPS egress so the agent can reach WatsonX and other
-                    # external APIs. TODO Phase 2: restrict to specific CIDRs per skill.
                     client.V1NetworkPolicyEgressRule(
                         ports=[client.V1NetworkPolicyPort(port=443, protocol="TCP")],
                     ),
-                    # Allow DNS resolution (UDP + TCP port 53).
                     client.V1NetworkPolicyEgressRule(
                         ports=[
                             client.V1NetworkPolicyPort(port=53, protocol="UDP"),
@@ -127,7 +125,7 @@ class KubernetesProvisioner(Provisioner):
             ),
         )
         self._networking.create_namespaced_network_policy(handle.namespace, policy)
-        logger.debug("NetworkPolicy (allow-https+dns) applied to %s.", handle.namespace)
+        logger.debug(f"NetworkPolicy applied to namespace '{handle.namespace}'")
 
     def _create_runner_configmap(self, handle: SandboxHandle, spec: AgentSpec) -> None:
         """Create a ConfigMap in the agent namespace mounting the runner config.yaml as-is."""
@@ -136,7 +134,7 @@ class KubernetesProvisioner(Provisioner):
             data={"config.yaml": spec.runner_config},
         )
         self._core.create_namespaced_config_map(handle.namespace, cm)
-        logger.debug("ConfigMap runner-config created in %s.", handle.namespace)
+        logger.debug(f"ConfigMap 'runner-config' created in namespace '{handle.namespace}'")
 
     def _create_pod(self, handle: SandboxHandle, spec: AgentSpec) -> None:
         # WATSONX_API_KEY is the only secret — passed as env var, not in config.yaml.
@@ -186,7 +184,7 @@ class KubernetesProvisioner(Provisioner):
             ),
         )
         self._core.create_namespaced_pod(handle.namespace, pod)
-        logger.debug("Pod %s created in namespace %s.", handle.pod_name, handle.namespace)
+        logger.debug(f"Pod '{handle.pod_name}' created in namespace '{handle.namespace}'")
 
     def wait_for_running(self, handle: SandboxHandle, timeout: int = 120) -> SandboxHandle:
         """Block until the pod is Running or timeout expires."""
@@ -196,6 +194,8 @@ class KubernetesProvisioner(Provisioner):
             if updated.status == SandboxStatus.RUNNING:
                 return updated
             if updated.status in (SandboxStatus.FAILED, SandboxStatus.TERMINATED):
+                logger.error(f"Pod '{handle.pod_name}' reached status {updated.status} before Running")
                 raise RuntimeError(f"Pod {handle.pod_name} reached status {updated.status} before Running.")
             time.sleep(2)
+        logger.error(f"Pod '{handle.pod_name}' timed out after {timeout}s waiting for Running status")
         raise TimeoutError(f"Pod {handle.pod_name} did not reach Running within {timeout}s.")

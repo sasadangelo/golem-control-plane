@@ -441,6 +441,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "kubernetes" },
+    { name = "loguru" },
     { name = "pydantic" },
     { name = "pydantic-settings", extra = ["yaml"] },
     { name = "python-multipart" },
@@ -467,6 +468,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27.0" },
     { name = "kubernetes", specifier = ">=29.0.0" },
+    { name = "loguru", specifier = ">=0.7" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10.0" },
     { name = "pydantic", specifier = ">=2.6.0" },
     { name = "pydantic-settings", extras = ["yaml"], specifier = ">=2.2.0" },
@@ -617,6 +619,19 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/99/eb/16ab8a5c7c2782b1e54d26369d1373f2f3a37fa616fe391a5a17bc455c4d/librt-0.14.0-cp314-cp314t-win32.whl", hash = "sha256:388ee73e43c1845e32195bca0cff85d0661d0898ff244d1bbb60d9a2e40e44f6", size = 104357, upload-time = "2026-08-06T14:51:14.094Z" },
     { url = "https://files.pythonhosted.org/packages/fe/f1/260c2593a24cdbf47a6044a78185be51c18b843aca0462c0afa08d5ff5f6/librt-0.14.0-cp314-cp314t-win_amd64.whl", hash = "sha256:8dcd1657a9e81cc83bc32bcaee44d71f3ccf492dcbcc26e1d5f2f80bfd474d93", size = 126988, upload-time = "2026-08-06T14:51:15.39Z" },
     { url = "https://files.pythonhosted.org/packages/42/3e/3649576800fa2509a23dcc658aa60698d759382ecede3a27652e03028394/librt-0.14.0-cp314-cp314t-win_arm64.whl", hash = "sha256:2bf5a2a67aded654124e7af37d7e5aa7c589d34e18bdd468cb9c8f509c67eabb", size = 110768, upload-time = "2026-08-06T14:51:16.66Z" },
+]
+
+[[package]]
+name = "loguru"
+version = "0.7.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "win32-setctime", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3a/05/a1dae3dffd1116099471c643b8924f5aa6524411dc6c63fdae648c4f1aca/loguru-0.7.3.tar.gz", hash = "sha256:19480589e77d47b8d85b2c827ad95d49bf31b0dcde16593892eb51dd18706eb6", size = 63559, upload-time = "2024-12-06T11:20:56.608Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0c/29/0348de65b8cc732daa3e33e67806420b2ae89bdce2b04af740289c5c6c8c/loguru-0.7.3-py3-none-any.whl", hash = "sha256:31a33c10c8e1e10422bfd431aeb5d351c7cf7fa671e3c4df004162264b28220c", size = 61595, upload-time = "2024-12-06T11:20:54.538Z" },
 ]
 
 [[package]]
@@ -1272,6 +1287,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/2c/41/aa4bf9664e4cda14c3b39865b12251e8e7d239f4cd0e3cc1b6c2ccde25c1/websocket_client-1.9.0.tar.gz", hash = "sha256:9e813624b6eb619999a97dc7958469217c3176312b3a16a4bd1bc7e08a46ec98", size = 70576, upload-time = "2025-10-07T21:16:36.495Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/34/db/b10e48aa8fff7407e67470363eac595018441cf32d5e1001567a7aeba5d2/websocket_client-1.9.0-py3-none-any.whl", hash = "sha256:af248a825037ef591efbf6ed20cc5faa03d3b47b9e5a2230a529eeee1c1fc3ef", size = 82616, upload-time = "2025-10-07T21:16:34.951Z" },
+]
+
+[[package]]
+name = "win32-setctime"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b3/8f/705086c9d734d3b663af0e9bb3d4de6578d08f46b1b101c2442fd9aecaa2/win32_setctime-1.2.0.tar.gz", hash = "sha256:ae1fdf948f5640aae05c511ade119313fb6a30d7eabe25fef9764dca5873c4c0", size = 4867, upload-time = "2024-12-07T15:28:28.314Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e1/07/c6fe3ad3e685340704d314d765b7912993bcb8dc198f0e7a89382d37974b/win32_setctime-1.2.0-py3-none-any.whl", hash = "sha256:95d644c4e708aba81dc3704a116d8cbc974d70b3bdb8be1d150e36be6e9d1390", size = 4083, upload-time = "2024-12-07T15:28:26.465Z" },
 ]
 
 [[package]]
