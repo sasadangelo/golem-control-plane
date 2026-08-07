@@ -132,8 +132,9 @@ Each becomes a standalone internal library with its own `pyproject.toml`, versio
 | gVisor / Kata Containers | infra | Runtime isolation for dynamic code execution |
 | Go CLI binary | `golem-cli` | Distributable without Python runtime |
 | **Provisioner Stage 1** | `golem-control-plane` | `DockerComposeProvisioner` for single-machine dev; `OpenShiftProvisioner` extending `KubernetesProvisioner` |
+| **Observability — Langfuse** | `golem-observability` | Deploy Langfuse as a standalone Docker image in `golem-system`; instrument `golem-framework` LLM Gateway + loop with traces/generations/spans; runner pods emit traces to internal ClusterIP — no internet egress required |
 
-> **LLM Gateway placement rationale:** the gateway lives in `golem-framework`, not `golem-agent-sdk`.  
+> **LLM Gateway placement rationale:** the gateway lives in `golem-framework`, not `golem-agent-sdk`.
 > `golem-agent-sdk` must remain importable by non-LLM agents (A2A proxies, orchestrators).  
 > Swapping the agentic backend (LangGraph → AutoGen) and swapping the LLM backend (WatsonX → Ollama) are both `golem-framework` concerns and should evolve together.
 

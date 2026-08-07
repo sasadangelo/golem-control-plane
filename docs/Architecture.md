@@ -11,7 +11,7 @@ It lets you create isolated AI agents on demand, chat with them in streaming, le
 
 ![Golem Architecture](img/architecture.svg)
 
-The platform is built from **four core components** plus two internal libraries (Phase 2) and one cross-cutting LLM gateway layer, bound together by two cooperation protocols (MCP and A2A).
+The platform is built from **four core components** plus two internal libraries (Phase 2), one cross-cutting LLM gateway layer, and one optional observability sidecar (Phase 2) — bound together by two cooperation protocols (MCP and A2A).
 
 ---
 
@@ -193,6 +193,88 @@ golem-runner
 | **Secrets** | K8s Secrets at MVP, never embedded in image layers. Migration path to Vault / External Secrets Operator planned for Phase 2. |
 | **Sandbox GC** | TTL annotation on each pod — the Control Plane GC loop deletes idle sandboxes automatically. |
 | **Runtime isolation** | gVisor / Kata Containers recommended for dynamic code execution (Phase 3). |
+
+---
+
+## Observability — Langfuse  `Phase 2 · standalone Docker image`
+
+Golem's observability layer is built around **[Langfuse](https://langfuse.com/)** — an open-source LLM tracing and evaluation platform deployed as a separate Docker image inside the cluster.
+
+### Deployment model
+
+Langfuse runs as its own K8s `Deployment` in the `golem-system` namespace, exposed via a `ClusterIP` Service (no external Ingress).
+It is completely optional: when `LANGFUSE_HOST` is absent from a runner's config, tracing is silently disabled.
+
+```
+golem-system namespace
+├── golem-control-plane   (existing)
+├── langfuse              (new — standalone image)
+│   ├── Deployment        langfuse/langfuse:latest
+│   ├── Service           ClusterIP :3000
+│   └── PVC               PostgreSQL data (or external managed DB)
+└── ...
+
+Agent sandbox namespace (per agent)
+└── runner pod
+    └── golem-framework → LLM Gateway
+            │  traces (HTTP/OTLP)
+            ▼
+        langfuse:3000  (ClusterIP, internal only)
+```
+
+### What gets traced
+
+| Signal | Emitter | Langfuse object |
+|---|---|---|
+| LLM call (prompt + completion + tokens) | `golem-framework` LLM Gateway | `Generation` |
+| Agentic loop iteration (reasoning step) | `golem-framework` loop backend | `Span` |
+| Tool call (MCP invocation + result) | `golem-framework` loop backend | `Span` |
+| A2A task delegation (SendMessage) | `golem-agent-sdk` A2A client | `Span` |
+| Agent request lifecycle | Control Plane | `Trace` (root) |
+
+### Instrumentation placement
+
+Tracing is instrumented at the `golem-framework` boundary — specifically inside the LLM Gateway and the agentic loop abstraction.
+This means **zero tracing code in `golem-runner`** and **zero tracing code in `golem-agent-sdk`**:
+
+```
+golem-runner  →  golem-framework (loop + LLM Gateway)  →  Langfuse SDK  →  langfuse:3000
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                 only place that knows about LLM calls
+```
+
+### NetworkPolicy implication
+
+Runner pods need egress to the Langfuse ClusterIP. This is an **internal cluster address** (not the internet), so it is added as an explicit egress rule alongside the existing HTTPS/DNS allowlist:
+
+```yaml
+# added to sandbox NetworkPolicy when observability is enabled
+- ports:
+    - port: 3000
+      protocol: TCP
+  to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: golem-system
+      podSelector:
+        matchLabels:
+          app: langfuse
+```
+
+### Configuration
+
+Langfuse credentials are passed to runner pods via the `config.yaml` ConfigMap (non-secret values) and a K8s Secret (secret key):
+
+```yaml
+# config.yaml (non-secret)
+observability:
+  enabled: true
+  host: "http://langfuse.golem-system.svc.cluster.local:3000"
+
+# K8s Secret (secret values)
+LANGFUSE_SECRET_KEY: sk-lf-...
+LANGFUSE_PUBLIC_KEY: pk-lf-...
+```
 
 ---
 
