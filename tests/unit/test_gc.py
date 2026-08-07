@@ -11,19 +11,33 @@ from unittest.mock import MagicMock, patch
 
 def test_gc_deletes_expired_sandbox() -> None:
     """GC loop must delete a sandbox whose TTL has expired."""
-    # Ensure control-plane modules are fresh
-    for mod in ("models", "provisioner", "k8s_provisioner", "card_registry", "app"):
+    for mod in (
+        "domain",
+        "domain.models",
+        "domain.ports",
+        "domain.ports.provisioner",
+        "infrastructure",
+        "infrastructure.adapters",
+        "infrastructure.adapters.k8s_provisioner",
+        "infrastructure.adapters.card_registry",
+        "interfaces",
+        "interfaces.api",
+        "interfaces.api.schemas",
+        "interfaces.api.app",
+    ):
         sys.modules.pop(mod, None)
 
-    with patch("k8s_provisioner._load_k8s_config"):
-        import app as cp
+    import infrastructure.adapters.k8s_provisioner as k8s_mod  # noqa: PLC0415
+
+    with patch.object(k8s_mod, "_load_k8s_config"):
+        import interfaces.api.app as cp
 
         mock_prov = MagicMock()
         cp.provisioner = mock_prov  # type: ignore[attr-defined]
         cp._sandboxes.clear()  # type: ignore[attr-defined]
         cp._created_at.clear()  # type: ignore[attr-defined]
 
-        from models import SandboxHandle, SandboxStatus
+        from domain.models import SandboxHandle, SandboxStatus
 
         handle = SandboxHandle(agent_id="golem-agent-expired", ttl_seconds=60)
         handle.status = SandboxStatus.RUNNING
@@ -42,7 +56,7 @@ def test_gc_deletes_expired_sandbox() -> None:
             for aid in expired:
                 h = cp._sandboxes[aid]
                 cp.provisioner.delete_sandbox(h)
-                import card_registry
+                import infrastructure.adapters.card_registry as card_registry  # noqa: PLC0415
 
                 card_registry.deregister(aid)
                 cp._sandboxes.pop(aid, None)
@@ -56,18 +70,33 @@ def test_gc_deletes_expired_sandbox() -> None:
 
 def test_gc_keeps_non_expired_sandbox() -> None:
     """GC loop must not delete a sandbox whose TTL has not yet expired."""
-    for mod in ("models", "provisioner", "k8s_provisioner", "card_registry", "app"):
+    for mod in (
+        "domain",
+        "domain.models",
+        "domain.ports",
+        "domain.ports.provisioner",
+        "infrastructure",
+        "infrastructure.adapters",
+        "infrastructure.adapters.k8s_provisioner",
+        "infrastructure.adapters.card_registry",
+        "interfaces",
+        "interfaces.api",
+        "interfaces.api.schemas",
+        "interfaces.api.app",
+    ):
         sys.modules.pop(mod, None)
 
-    with patch("k8s_provisioner._load_k8s_config"):
-        import app as cp
+    import infrastructure.adapters.k8s_provisioner as k8s_mod  # noqa: PLC0415
+
+    with patch.object(k8s_mod, "_load_k8s_config"):
+        import interfaces.api.app as cp
 
         mock_prov = MagicMock()
         cp.provisioner = mock_prov  # type: ignore[attr-defined]
         cp._sandboxes.clear()  # type: ignore[attr-defined]
         cp._created_at.clear()  # type: ignore[attr-defined]
 
-        from models import SandboxHandle, SandboxStatus
+        from domain.models import SandboxHandle, SandboxStatus
 
         handle = SandboxHandle(agent_id="golem-agent-alive", ttl_seconds=3600)
         handle.status = SandboxStatus.RUNNING

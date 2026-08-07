@@ -12,13 +12,13 @@ import pytest
 @pytest.fixture(autouse=True)
 def _fresh_registry() -> None:
     """Re-import card_registry for each test to reset in-memory state."""
-    sys.modules.pop("card_registry", None)
+    sys.modules.pop("infrastructure.adapters.card_registry", None)
 
 
 def test_register_and_get_card() -> None:
     """fetch_and_register (via direct store) and get_card must round-trip."""
-    import card_registry
-    from models import SandboxHandle
+    import infrastructure.adapters.card_registry as card_registry
+    from domain.models import SandboxHandle
 
     handle = SandboxHandle(agent_id="golem-agent-001")
     card = {"id": "golem-agent-001", "name": "Test Agent", "skills": []}
@@ -31,14 +31,14 @@ def test_register_and_get_card() -> None:
 
 def test_get_card_missing_returns_none() -> None:
     """get_card must return None for an unknown agent_id."""
-    import card_registry
+    import infrastructure.adapters.card_registry as card_registry
 
     assert card_registry.get_card("does-not-exist") is None
 
 
 def test_deregister_removes_card() -> None:
     """deregister must remove the card from the registry."""
-    import card_registry
+    import infrastructure.adapters.card_registry as card_registry
 
     card_registry._registry["golem-agent-002"] = {"id": "golem-agent-002"}
     card_registry.deregister("golem-agent-002")
@@ -47,7 +47,7 @@ def test_deregister_removes_card() -> None:
 
 def test_list_cards_returns_all() -> None:
     """list_cards must return all registered cards."""
-    import card_registry
+    import infrastructure.adapters.card_registry as card_registry
 
     card_registry._registry["golem-agent-003"] = {"id": "golem-agent-003"}
     card_registry._registry["golem-agent-004"] = {"id": "golem-agent-004"}
@@ -59,9 +59,9 @@ def test_list_cards_returns_all() -> None:
 
 def test_fetch_and_register_on_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """fetch_and_register must return None gracefully on HTTP error."""
-    import card_registry
     import httpx
-    from models import SandboxHandle
+    import infrastructure.adapters.card_registry as card_registry
+    from domain.models import SandboxHandle
 
     monkeypatch.setattr(httpx, "get", lambda *a, **kw: (_ for _ in ()).throw(httpx.ConnectError("refused")))
     handle = SandboxHandle(agent_id="golem-agent-005")

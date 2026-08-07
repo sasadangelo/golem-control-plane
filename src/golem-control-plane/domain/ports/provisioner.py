@@ -6,7 +6,7 @@
 
 from abc import ABC, abstractmethod
 
-from models import AgentSpec, SandboxHandle
+from domain.models import AgentSpec, SandboxHandle
 
 
 class Provisioner(ABC):

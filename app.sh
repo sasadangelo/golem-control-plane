@@ -32,7 +32,7 @@ else
   exit 1
 fi
 
-exec "${UVICORN}" app:app \
+exec "${UVICORN}" interfaces.api.app:app \
   --host "${HOST}" \
   --port "${PORT}" \
   --workers "${WORKERS}" \

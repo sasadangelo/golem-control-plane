@@ -51,7 +51,7 @@ def test_health(cp_client: TestClient) -> None:
 
 def test_create_agent_returns_201(cp_client: TestClient, mock_provisioner: MagicMock) -> None:
     """POST /agents must return 201 with agent_id, namespace and status."""
-    from models import SandboxHandle, SandboxStatus
+    from domain.models import SandboxHandle, SandboxStatus
 
     handle = SandboxHandle(agent_id="golem-agent-abc")
     handle.status = SandboxStatus.PENDING
@@ -77,7 +77,7 @@ def test_get_status_unknown_agent_returns_404(cp_client: TestClient) -> None:
 
 def test_get_status_known_agent(cp_client: TestClient, mock_provisioner: MagicMock) -> None:
     """GET /agents/{id}/status must return the current status."""
-    from models import SandboxHandle, SandboxStatus
+    from domain.models import SandboxHandle, SandboxStatus
 
     handle = SandboxHandle(agent_id="golem-agent-xyz")
     handle.status = SandboxStatus.PENDING
@@ -96,7 +96,7 @@ def test_get_status_known_agent(cp_client: TestClient, mock_provisioner: MagicMo
 
 def test_delete_agent_returns_204(cp_client: TestClient, mock_provisioner: MagicMock) -> None:
     """DELETE /agents/{id} must return 204 and remove the agent."""
-    from models import SandboxHandle, SandboxStatus
+    from domain.models import SandboxHandle, SandboxStatus
 
     handle = SandboxHandle(agent_id="golem-agent-del")
     handle.status = SandboxStatus.RUNNING
@@ -114,7 +114,7 @@ def test_delete_unknown_agent_returns_404(cp_client: TestClient) -> None:
 
 def test_list_agents(cp_client: TestClient, mock_provisioner: MagicMock) -> None:
     """GET /agents must return all created agents."""
-    from models import SandboxHandle, SandboxStatus
+    from domain.models import SandboxHandle, SandboxStatus
 
     for i in range(2):
         h = SandboxHandle(agent_id=f"golem-agent-list-{i}")

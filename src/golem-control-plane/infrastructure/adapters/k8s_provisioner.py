@@ -6,12 +6,13 @@
 
 import time
 
-from core.config import settings
-from core.log import LoggerManager
 from kubernetes import client, config  # type: ignore[import-untyped]
 from kubernetes.client.rest import ApiException  # type: ignore[import-untyped]
-from models import AgentSpec, SandboxHandle, SandboxStatus
-from provisioner import Provisioner
+
+from core.config import settings
+from core.log import LoggerManager
+from domain.models import AgentSpec, SandboxHandle, SandboxStatus
+from domain.ports.provisioner import Provisioner
 
 logger = LoggerManager.get_logger("KubernetesProvisioner")
 

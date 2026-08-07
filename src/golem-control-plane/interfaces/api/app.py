@@ -9,13 +9,14 @@ import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-import card_registry
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+
 from core.config import settings
 from core.log import LoggerManager, setup_logging
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from k8s_provisioner import KubernetesProvisioner
-from models import AgentSpec, SandboxHandle, SandboxStatus
-from pydantic import BaseModel
+from domain.models import AgentSpec, SandboxHandle, SandboxStatus
+from infrastructure.adapters import card_registry
+from infrastructure.adapters.k8s_provisioner import KubernetesProvisioner
+from interfaces.api.schemas import AgentStatusResponse, CreateAgentResponse
 
 setup_logging(
     level=settings.log.level,
@@ -82,23 +83,6 @@ async def lifespan(app_: FastAPI) -> AsyncGenerator[None, None]:
 
 provisioner = KubernetesProvisioner()
 app = FastAPI(title="Golem Control Plane", version="0.1.0", lifespan=lifespan)
-
-
-# ---------------------------------------------------------------------------
-# Request / Response schemas
-# ---------------------------------------------------------------------------
-
-
-class CreateAgentResponse(BaseModel):
-    agent_id: str
-    namespace: str
-    status: str
-
-
-class AgentStatusResponse(BaseModel):
-    agent_id: str
-    status: str
-    agent_card: dict | None = None
 
 
 # ---------------------------------------------------------------------------

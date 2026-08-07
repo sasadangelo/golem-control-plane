@@ -7,8 +7,9 @@
 from typing import Any
 
 import httpx
+
 from core.log import LoggerManager
-from models import SandboxHandle
+from domain.models import SandboxHandle
 
 logger = LoggerManager.get_logger("CardRegistry")
 

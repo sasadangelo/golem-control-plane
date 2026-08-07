@@ -51,14 +51,48 @@ _mock_settings.llm.url = "https://us-south.ml.cloud.ibm.com"
 _mock_settings.llm.project_id = ""
 _mock_settings.llm.model = "openai/gpt-oss-120b"
 
+_mock_log = MagicMock()
+_mock_log.LoggerManager = MagicMock()
+_mock_log.LoggerManager.get_logger = MagicMock(return_value=MagicMock())
+_mock_log.setup_logging = MagicMock()
+
 _mock_core_config = MagicMock()
 _mock_core_config.settings = _mock_settings
-sys.modules["core"] = MagicMock()  # type: ignore[assignment]
+_mock_core = MagicMock()
+sys.modules["core"] = _mock_core  # type: ignore[assignment]
 sys.modules["core.config"] = _mock_core_config  # type: ignore[assignment]
+sys.modules["core.log"] = _mock_log  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------------------
-# 3. Fixtures
+# 4. Helpers to reset the hexagonal module tree between tests
+# ---------------------------------------------------------------------------
+
+_CONTROL_PLANE_MODULES = (
+    "domain",
+    "domain.models",
+    "domain.ports",
+    "domain.ports.provisioner",
+    "infrastructure",
+    "infrastructure.adapters",
+    "infrastructure.adapters.k8s_provisioner",
+    "infrastructure.adapters.card_registry",
+    "interfaces",
+    "interfaces.api",
+    "interfaces.api.schemas",
+    "interfaces.api.app",
+    "core.config",
+)
+
+
+def _reset_modules() -> None:
+    for mod in _CONTROL_PLANE_MODULES:
+        sys.modules.pop(mod, None)
+    sys.modules["core.config"] = _mock_core_config  # type: ignore[assignment]
+
+
+# ---------------------------------------------------------------------------
+# 5. Fixtures
 # ---------------------------------------------------------------------------
 
 
@@ -71,13 +105,12 @@ def mock_provisioner() -> MagicMock:
 @pytest.fixture()
 def cp_client(mock_provisioner: MagicMock) -> TestClient:
     """TestClient for the Control Plane app with the provisioner fully mocked."""
-    # Pop cached control-plane modules so each test gets a clean slate
-    for mod in ("models", "provisioner", "k8s_provisioner", "card_registry", "app", "core.config"):
-        sys.modules.pop(mod, None)
-    sys.modules["core.config"] = _mock_core_config  # type: ignore[assignment]
+    _reset_modules()
 
-    with patch("k8s_provisioner._load_k8s_config"):
-        import app as cp_main  # noqa: PLC0415
+    import infrastructure.adapters.k8s_provisioner as k8s_mod  # noqa: PLC0415
+
+    with patch.object(k8s_mod, "_load_k8s_config"):
+        import interfaces.api.app as cp_main  # noqa: PLC0415
 
         # Inject mock provisioner and reset sandbox store
         cp_main.provisioner = mock_provisioner  # type: ignore[attr-defined]

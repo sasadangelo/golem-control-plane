@@ -1,6 +1,6 @@
 # Golem — Architecture
 
-> **Component deep-dives:** [Golem Control Plane](GolemControlPlane.md) · [Security Model](Security.md)
+> **Component deep-dives:** [Golem Control Plane](GolemControlPlane.md) · [Security Model](Security.md) · [Control Plane Internal Architecture](#control-plane-internal-architecture-hexagonal)
 
 Golem is a **Kubernetes-native Agent-as-a-Service platform**.  
 It lets you create isolated AI agents on demand, chat with them in streaming, let them cooperate with each other, and run autonomous background tasks — all from a single CLI or web interface.
@@ -443,3 +443,91 @@ spec:
 ```
 
 The REST API and the Operator coexist: both drive the same `Provisioner` layer.
+
+---
+
+## Control Plane Internal Architecture (Hexagonal)
+
+The Control Plane is organised following the **Hexagonal Architecture** (Ports & Adapters) pattern.
+The domain is at the centre and has zero dependencies on frameworks, Kubernetes, or HTTP.
+All external technology is pushed to the edges as interchangeable adapters.
+
+```
+src/golem-control-plane/
+│
+├── domain/                          ← CENTRE OF THE HEXAGON
+│   ├── models.py                    ← AgentSpec, SandboxHandle, SandboxStatus (pure domain entities)
+│   └── ports/
+│       └── provisioner.py           ← Provisioner ABC (output port — abstract interface)
+│
+├── infrastructure/                  ← DRIVEN ADAPTERS (called by the domain)
+│   └── adapters/
+│       ├── k8s_provisioner.py       ← KubernetesProvisioner (implements Provisioner port)
+│       └── card_registry.py         ← In-memory A2A Card Registry (HTTP fetch + dict store)
+│
+├── interfaces/                      ← DRIVING ADAPTERS (call the domain from the outside)
+│   └── api/
+│       ├── app.py                   ← FastAPI application factory + all HTTP endpoints
+│       └── schemas.py               ← Pydantic request/response schemas (HTTP boundary DTOs)
+│
+└── core/                            ← CROSS-CUTTING (shared by all layers)
+    ├── config.py                    ← Settings singleton (config.yaml + .env)
+    └── log.py                       ← Loguru setup + LoggerManager
+```
+
+### Layer responsibilities
+
+| Layer | Role | Depends on |
+|---|---|---|
+| **Domain** | Pure business logic, entities, abstract port interfaces | Nothing |
+| **Infrastructure / Adapters** | Concrete implementations of output ports (K8s, HTTP) | Domain only |
+| **Interfaces / API** | HTTP driving adapter — translates HTTP ↔ domain calls | Domain + Infrastructure |
+| **Core** | Cross-cutting config and logging | Nothing (loaded at startup) |
+
+### Ports & Adapters map
+
+```
+                    ┌──────────────────────────────────────────┐
+                    │            DOMAIN (hexagon)              │
+  ┌─────────────┐   │  ┌────────────────────────────────────┐  │   ┌──────────────────────┐
+  │  HTTP       │──▶│  │  domain/models.py                  │  │──▶│  infrastructure/     │
+  │  (FastAPI)  │   │  │  AgentSpec · SandboxHandle         │  │   │  adapters/           │
+  │             │   │  │                                    │  │   │  k8s_provisioner.py  │
+  │ interfaces/ │   │  │  domain/ports/provisioner.py       │  │   │  (Kubernetes)        │
+  │ api/app.py  │   │  │  Provisioner ABC  ← output port    │  │   └──────────────────────┘
+  │             │   │  └────────────────────────────────────┘  │
+  └─────────────┘   │                                          │   ┌──────────────────────┐
+  Driving Adapter   │                                          │──▶│  infrastructure/     │
+  (input side)      │                                          │   │  adapters/           │
+                    └──────────────────────────────────────────┘   │  card_registry.py    │
+                                                                   │  (HTTP + in-memory)  │
+                                                                   └──────────────────────┘
+                                                                   Driven Adapters
+                                                                   (output side)
+```
+
+### Key design benefit — the Provisioner Port
+
+[`domain/ports/provisioner.py`](../src/golem-control-plane/domain/ports/provisioner.py) defines
+the `Provisioner` ABC with three abstract methods: `create_sandbox()`, `delete_sandbox()`,
+`get_status()`. The HTTP layer and the GC loop call only this interface — they are completely
+unaware of Kubernetes.
+
+This means new backends can be added without touching a single line of application logic:
+
+| Backend class | Location | Use case |
+|---|---|---|
+| `KubernetesProvisioner` *(MVP)* | `infrastructure/adapters/k8s_provisioner.py` | Any K8s cluster |
+| `DockerComposeProvisioner` *(Phase 3)* | `infrastructure/adapters/docker_provisioner.py` | Local dev, no K8s |
+| `MockProvisioner` *(tests)* | injected via `conftest.py` | Unit tests |
+
+### Dependency direction (always inward)
+
+```
+interfaces/api  →  domain  ←  infrastructure/adapters
+                     ↑
+                   core/
+```
+
+No arrow ever points outward from domain. Infrastructure depends on domain (it implements its
+ports). Interfaces depend on domain (it calls its use cases). Domain depends on nothing.
