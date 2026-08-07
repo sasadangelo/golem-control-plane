@@ -1,6 +1,6 @@
 # Golem — Roadmap
 
-## MVP — 4-Week Sprint  `June 2026`
+## MVP — 4-Week Sprint  `August 2026`
 
 The goal of the MVP is a fully working **Agent-as-a-Service platform** running on any Kubernetes cluster (IBM Cloud, AWS, GCP, or a local Kind cluster).
 
