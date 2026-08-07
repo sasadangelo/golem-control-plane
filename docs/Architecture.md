@@ -121,18 +121,20 @@ Everything related to the agent's identity and communication with the Golem plat
 
 ---
 
-### `golem-framework` — LLM framework abstraction + LLM Gateway
+### `golem-framework` — LLM framework abstraction + LLM Gateway + Graph Plugin system
 
-A portability layer with two responsibilities:
+A portability layer with three responsibilities:
 
 1. **Agentic loop abstraction** — hides the underlying framework (LangGraph, AutoGen, CrewAI…) behind a common interface so the runner never imports LangGraph directly
 2. **LLM Gateway** — a provider/protocol/model router that maps a declarative config to the correct LLM client
+3. **Graph Plugin system** — loads a custom LangGraph graph from a mounted Python file at runtime, with no image rebuild required
 
 ```
 golem-framework
 ├── loop/
 │   ├── base.py            ← abstract AgentLoop interface
-│   ├── langgraph.py       ← MVP implementation
+│   ├── langgraph.py       ← built-in ReAct loop (default, no plugin needed)
+│   ├── plugin.py          ← plugin loader: imports graph from /app/graph/pipeline.py
 │   ├── autogen.py         ← Phase 3
 │   └── crewai.py          ← Phase 3
 └── llm_gateway/
@@ -176,8 +178,88 @@ The same pattern extends to future providers that may expose multiple protocol v
 ```
 golem-runner
     import golem_agent_sdk   → A2A, heartbeat, Agent Card   (no LLM dep)
-    import golem_framework   → agentic loop + LLM Gateway   (has LLM dep)
+    import golem_framework   → agentic loop + LLM Gateway + graph plugin loader
 ```
+
+---
+
+## Graph Plugin System  `Phase 2`
+
+The built-in ReAct loop covers simple Q&A and tool-use scenarios. For complex cases — multi-source aggregation, structured Pydantic state, conditional branching, retry cycles — the runner supports injecting a **custom LangGraph graph at runtime** with no image rebuild.
+
+### How it works
+
+`POST /agents` accepts an optional second file upload alongside `config.yaml`:
+
+```bash
+curl -X POST http://localhost:9000/agents \
+  -F "config=@config.yaml" \
+  -F "graph=@pipeline.py"        # ← optional custom graph
+```
+
+The Control Plane provisioner creates **two ConfigMaps** in the sandbox namespace:
+
+```
+sandbox namespace (golem-agent-xxxxxxxx)
+├── ConfigMap: runner-config     → mounted at /app/config.yaml     (already exists)
+└── ConfigMap: runner-graph      → mounted at /app/graph/pipeline.py  (new, optional)
+```
+
+At boot, the runner checks for `/app/graph/pipeline.py`. If present, `golem-framework`'s plugin loader imports it and calls `build_graph()`. If absent, the built-in ReAct loop is used as fallback.
+
+```python
+# golem-framework/loop/plugin.py
+import importlib.util
+from pathlib import Path
+
+PLUGIN_PATH = Path("/app/graph/pipeline.py")
+
+def load_plugin_graph():
+    if not PLUGIN_PATH.exists():
+        return None                          # fallback to built-in ReAct
+    spec = importlib.util.spec_from_file_location("graph_plugin", PLUGIN_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)          # type: ignore[union-attr]
+    return module.build_graph()              # convention: must expose build_graph()
+```
+
+### Plugin contract
+
+A valid `pipeline.py` plugin must expose a single function:
+
+```python
+# pipeline.py — injected by the user at agent creation time
+from langgraph.graph import StateGraph, START
+from pydantic import BaseModel
+
+class MyState(BaseModel):
+    raw_data:  list[dict] = []
+    result:    str        = ""
+
+def build_graph() -> StateGraph:
+    graph = StateGraph(MyState)
+    graph.add_node("fetch",    fetch_data)
+    graph.add_node("analyze",  analyze)
+    graph.add_node("summarize", summarize)
+    graph.add_edge(START,      "fetch")
+    graph.add_edge("fetch",    "analyze")
+    graph.add_edge("analyze",  "summarize")
+    return graph.compile()
+```
+
+### What the plugin enables
+
+| Scenario | Pattern |
+|---|---|
+| Multi-source data aggregation | Parallel `add_edge(START, node)` fan-out + fan-in to a merge node |
+| Structured typed state | Pydantic `BaseModel` as `StateGraph` schema — validated at every step |
+| Conditional branching | `add_conditional_edges` — runtime routing based on state values |
+| Retry / refinement loops | Cycle edges back to earlier nodes until a condition is met |
+| Human-in-the-loop | LangGraph `interrupt()` + `resume()` — pause graph, await external input |
+
+### Security note
+
+The plugin file is **code**, not configuration. It is mounted from a ConfigMap created by the Control Plane at provisioning time — it never comes directly from an unauthenticated source. Phase 3 hardening (code signing, OPA policy validation) is tracked in the Roadmap.
 
 ---
 
