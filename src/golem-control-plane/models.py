@@ -18,13 +18,9 @@ class SandboxMode(StrEnum):
 class AgentSpec(BaseModel):
     """Input specification for creating a new agent sandbox."""
 
-    name: str = Field(..., description="Human-readable agent name.")
-    system_prompt: str = Field(..., description="Agent persona and instructions.")
-    enabled_skills: list[str] = Field(
-        default_factory=list, description="Skill IDs to activate (e.g. bash, http_check)."
-    )
     mode: SandboxMode = Field(default=SandboxMode.EPHEMERAL, description="Sandbox lifecycle mode.")
     ttl_seconds: int = Field(default=3600, description="Idle TTL before the sandbox is garbage-collected.")
+    runner_config: str = Field(default="", description="Raw runner config.yaml content to mount in the pod.")
 
 
 class SandboxStatus(StrEnum):

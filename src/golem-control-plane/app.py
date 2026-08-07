@@ -6,19 +6,16 @@
 
 import asyncio
 import logging
-import os
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import card_registry
-from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from core.config import settings
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel
 from k8s_provisioner import KubernetesProvisioner
 from models import AgentSpec, SandboxHandle, SandboxStatus
-from pydantic import BaseModel
-
-load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -29,7 +26,7 @@ _sandboxes: dict[str, SandboxHandle] = {}
 # Sandbox creation timestamps for TTL tracking {agent_id: created_at_epoch}
 _created_at: dict[str, float] = {}
 
-GC_INTERVAL_SECONDS = int(os.getenv("GC_INTERVAL_SECONDS", "60"))
+GC_INTERVAL_SECONDS = settings.control_plane.gc_interval
 
 
 # ---------------------------------------------------------------------------
@@ -84,13 +81,6 @@ app = FastAPI(title="Golem Control Plane", version="0.1.0", lifespan=lifespan)
 # ---------------------------------------------------------------------------
 
 
-class CreateAgentRequest(BaseModel):
-    name: str
-    system_prompt: str
-    enabled_skills: list[str] = []
-    ttl_seconds: int = 3600
-
-
 class CreateAgentResponse(BaseModel):
     agent_id: str
     namespace: str
@@ -109,18 +99,23 @@ class AgentStatusResponse(BaseModel):
 
 
 @app.post("/agents", response_model=CreateAgentResponse, status_code=201)
-async def create_agent(request: CreateAgentRequest) -> CreateAgentResponse:
+async def create_agent(
+    config: UploadFile = File(..., description="Runner config.yaml file."),
+    ttl_seconds: int = Form(default=3600, description="Sandbox TTL in seconds."),
+) -> CreateAgentResponse:
     """
     Provision a new isolated agent sandbox.
 
-    Creates a K8s Namespace + Pod + ResourceQuota + NetworkPolicy
-    for the given agent specification.
+    Accepts a multipart/form-data request with:
+    - ``config``: the runner config.yaml file
+    - ``ttl_seconds``: optional sandbox TTL (default 3600)
+
+    Creates a K8s Namespace + ConfigMap + Pod + ResourceQuota + NetworkPolicy.
     """
+    runner_config = (await config.read()).decode("utf-8")
     spec = AgentSpec(
-        name=request.name,
-        system_prompt=request.system_prompt,
-        enabled_skills=request.enabled_skills,
-        ttl_seconds=request.ttl_seconds,
+        ttl_seconds=ttl_seconds,
+        runner_config=runner_config,
     )
 
     try:

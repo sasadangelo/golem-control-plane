@@ -2,5 +2,12 @@
   "venvPath": ".",
   "venv": ".venv",
   "pythonVersion": "3.12",
-  "include": ["."]
+  "include": ["."],
+  "extraPaths": ["src/golem-control-plane"],
+  "typeCheckingMode": "standard",
+  "reportUnknownMemberType": "none",
+  "reportUnknownVariableType": "none",
+  "reportUnknownArgumentType": "none",
+  "reportUnknownParameterType": "none",
+  "reportMissingTypeStubs": "none"
 }

@@ -5,12 +5,11 @@
 """Kubernetes implementation of the Provisioner interface."""
 
 import logging
-import os
 import time
 
+from core.config import settings
 from kubernetes import client, config  # type: ignore[import-untyped]
 from kubernetes.client.rest import ApiException  # type: ignore[import-untyped]
-
 from models import AgentSpec, SandboxHandle, SandboxStatus
 from provisioner import Provisioner
 
@@ -35,25 +34,20 @@ class KubernetesProvisioner(Provisioner):
         self._core = client.CoreV1Api()
         self._apps = client.AppsV1Api()
         self._networking = client.NetworkingV1Api()
-        # Read at instantiation time so load_dotenv() in app.py runs first.
-        self._runner_image = os.getenv("RUNNER_IMAGE", "localhost/golem-runner:v1")
-        self._watsonx_api_key = os.getenv("WATSONX_API_KEY", "")
-        self._watsonx_url = os.getenv("WATSONX_URL", "https://us-south.ml.cloud.ibm.com")
-        self._watsonx_project_id = os.getenv("WATSONX_PROJECT_ID", "")
-        self._watsonx_model_id = os.getenv("WATSONX_MODEL_ID", "openai/gpt-oss-120b")
 
     # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
 
     def create_sandbox(self, spec: AgentSpec) -> SandboxHandle:
-        """Create Namespace, ResourceQuota, NetworkPolicy and Pod for the agent."""
+        """Create Namespace, ResourceQuota, NetworkPolicy, ConfigMap and Pod for the agent."""
         handle = SandboxHandle(ttl_seconds=spec.ttl_seconds)
-        logger.info("Creating sandbox %s", handle.agent_id)
+        logger.info("Creating sandbox %s (ttl=%ds)", handle.agent_id, spec.ttl_seconds)
 
         self._create_namespace(handle, spec)
         self._apply_resource_quota(handle)
         self._apply_network_policy(handle)
+        self._create_runner_configmap(handle, spec)
         self._create_pod(handle, spec)
 
         return handle
@@ -71,7 +65,7 @@ class KubernetesProvisioner(Provisioner):
         """Read the pod phase and map it to SandboxStatus."""
         try:
             pod = self._core.read_namespaced_pod(handle.pod_name, handle.namespace)
-            phase = (pod.status.phase or "Unknown").lower()
+            phase = (pod.status.phase or "Unknown").lower()  # type: ignore[union-attr]
             handle.status = {
                 "pending": SandboxStatus.PENDING,
                 "running": SandboxStatus.RUNNING,
@@ -135,18 +129,19 @@ class KubernetesProvisioner(Provisioner):
         self._networking.create_namespaced_network_policy(handle.namespace, policy)
         logger.debug("NetworkPolicy (allow-https+dns) applied to %s.", handle.namespace)
 
+    def _create_runner_configmap(self, handle: SandboxHandle, spec: AgentSpec) -> None:
+        """Create a ConfigMap in the agent namespace mounting the runner config.yaml as-is."""
+        cm = client.V1ConfigMap(
+            metadata=client.V1ObjectMeta(name="runner-config", namespace=handle.namespace),
+            data={"config.yaml": spec.runner_config},
+        )
+        self._core.create_namespaced_config_map(handle.namespace, cm)
+        logger.debug("ConfigMap runner-config created in %s.", handle.namespace)
+
     def _create_pod(self, handle: SandboxHandle, spec: AgentSpec) -> None:
-        agent_endpoint = f"http://{handle.pod_name}.{handle.namespace}.svc.cluster.local:8000"
+        # WATSONX_API_KEY is the only secret — passed as env var, not in config.yaml.
         env_vars = [
-            client.V1EnvVar(name="AGENT_ID", value=handle.agent_id),
-            client.V1EnvVar(name="AGENT_NAME", value=spec.name),
-            client.V1EnvVar(name="AGENT_ENDPOINT", value=agent_endpoint),
-            client.V1EnvVar(name="SYSTEM_PROMPT", value=spec.system_prompt),
-            client.V1EnvVar(name="ENABLED_SKILLS", value=",".join(spec.enabled_skills)),
-            client.V1EnvVar(name="WATSONX_API_KEY", value=self._watsonx_api_key),
-            client.V1EnvVar(name="WATSONX_URL", value=self._watsonx_url),
-            client.V1EnvVar(name="WATSONX_PROJECT_ID", value=self._watsonx_project_id),
-            client.V1EnvVar(name="WATSONX_MODEL_ID", value=self._watsonx_model_id),
+            client.V1EnvVar(name="WATSONX_API_KEY", value=settings.llm.api_key),
         ]
         pod = client.V1Pod(
             metadata=client.V1ObjectMeta(
@@ -159,7 +154,7 @@ class KubernetesProvisioner(Provisioner):
                 containers=[
                     client.V1Container(
                         name="runner",
-                        image=self._runner_image,
+                        image=settings.control_plane.runner_image,
                         image_pull_policy="IfNotPresent",
                         ports=[client.V1ContainerPort(container_port=8000)],
                         env=env_vars,
@@ -167,11 +162,25 @@ class KubernetesProvisioner(Provisioner):
                             requests={"cpu": "250m", "memory": "256Mi"},
                             limits={"cpu": "1", "memory": "1Gi"},
                         ),
+                        volume_mounts=[
+                            client.V1VolumeMount(
+                                name="runner-config",
+                                mount_path="/app/config.yaml",
+                                sub_path="config.yaml",
+                                read_only=True,
+                            )
+                        ],
                         liveness_probe=client.V1Probe(
                             http_get=client.V1HTTPGetAction(path="/health", port=8000),
                             initial_delay_seconds=15,
                             period_seconds=10,
                         ),
+                    )
+                ],
+                volumes=[
+                    client.V1Volume(
+                        name="runner-config",
+                        config_map=client.V1ConfigMapVolumeSource(name="runner-config"),
                     )
                 ],
             ),

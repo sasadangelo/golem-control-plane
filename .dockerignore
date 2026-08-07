@@ -1,6 +1,5 @@
 src/golem-control-plane/.env
 .venv
-__pycache__
 *.pyc
 *.pyo
 .pytest_cache
@@ -14,3 +13,8 @@ tests/
 .gitignore
 .pre-commit-config.yaml
 .secrets.baseline
+**/__pycache__/*
+.env.example
+.env
+Dockerfile
+.dockerignore

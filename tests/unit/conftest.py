@@ -5,7 +5,7 @@
 """Shared fixtures for Control Plane unit tests.
 
 Inserts the golem-control-plane source path first and stubs all heavy
-third-party dependencies (kubernetes, dotenv) before any module import.
+third-party dependencies (kubernetes, pydantic_settings) before any module import.
 """
 
 import os
@@ -30,18 +30,31 @@ _STUBS = [
     "kubernetes.client",
     "kubernetes.client.rest",
     "kubernetes.config",
-    "dotenv",
 ]
 for _name in _STUBS:
     if _name not in sys.modules:
         sys.modules[_name] = MagicMock()  # type: ignore[assignment]
 
-sys.modules["dotenv"].load_dotenv = lambda *a, **kw: None  # type: ignore[attr-defined]
-
 _k8s_config = sys.modules["kubernetes.config"]
 _k8s_config.load_incluster_config = MagicMock(side_effect=Exception("not in cluster"))  # type: ignore[attr-defined]
 _k8s_config.load_kube_config = MagicMock()  # type: ignore[attr-defined]
 _k8s_config.ConfigException = Exception  # type: ignore[attr-defined]
+
+# ---------------------------------------------------------------------------
+# 3. Stub core.config so tests never touch config.yaml / .env
+# ---------------------------------------------------------------------------
+_mock_settings = MagicMock()
+_mock_settings.control_plane.gc_interval = 60
+_mock_settings.control_plane.runner_image = "localhost/golem-runner:v1"
+_mock_settings.llm.api_key = ""
+_mock_settings.llm.url = "https://us-south.ml.cloud.ibm.com"
+_mock_settings.llm.project_id = ""
+_mock_settings.llm.model = "openai/gpt-oss-120b"
+
+_mock_core_config = MagicMock()
+_mock_core_config.settings = _mock_settings
+sys.modules["core"] = MagicMock()  # type: ignore[assignment]
+sys.modules["core.config"] = _mock_core_config  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -59,8 +72,9 @@ def mock_provisioner() -> MagicMock:
 def cp_client(mock_provisioner: MagicMock) -> TestClient:
     """TestClient for the Control Plane app with the provisioner fully mocked."""
     # Pop cached control-plane modules so each test gets a clean slate
-    for mod in ("models", "provisioner", "k8s_provisioner", "card_registry", "app"):
+    for mod in ("models", "provisioner", "k8s_provisioner", "card_registry", "app", "core.config"):
         sys.modules.pop(mod, None)
+    sys.modules["core.config"] = _mock_core_config  # type: ignore[assignment]
 
     with patch("k8s_provisioner._load_k8s_config"):
         import app as cp_main  # noqa: PLC0415

@@ -20,6 +20,11 @@ rules:
     resources: ["resourcequotas"]
     verbs: ["get", "list", "create", "delete"]
 
+  # Mount runner config.yaml as a ConfigMap in each sandbox namespace
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "delete"]
+
   # Apply network policies per sandbox namespace
   - apiGroups: ["networking.k8s.io"]
     resources: ["networkpolicies"]

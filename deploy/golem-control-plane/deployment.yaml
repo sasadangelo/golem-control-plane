@@ -24,30 +24,13 @@ spec:
           ports:
             - containerPort: 9000
           env:
-            - name: RUNNER_IMAGE
-              value: "localhost/golem-runner:v1"
-            - name: GC_INTERVAL_SECONDS
-              value: "60"
+            # Non-secret settings — loaded from config.yaml by pydantic-settings.
+            # Override here only if you need to diverge from config.yaml defaults.
             - name: WATSONX_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: golem-watsonx-credentials
                   key: WATSONX_API_KEY
-            - name: WATSONX_URL
-              valueFrom:
-                secretKeyRef:
-                  name: golem-watsonx-credentials
-                  key: WATSONX_URL
-            - name: WATSONX_PROJECT_ID
-              valueFrom:
-                secretKeyRef:
-                  name: golem-watsonx-credentials
-                  key: WATSONX_PROJECT_ID
-            - name: WATSONX_MODEL_ID
-              valueFrom:
-                secretKeyRef:
-                  name: golem-watsonx-credentials
-                  key: WATSONX_MODEL_ID
           livenessProbe:
             httpGet:
               path: /health

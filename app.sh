@@ -21,13 +21,18 @@ HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-9000}"
 WORKERS="${WORKERS:-1}"
 
+# Use the venv uvicorn in local dev; fall back to the system uvicorn inside Docker.
 VENV_UVICORN="${SCRIPT_DIR}/.venv/bin/uvicorn"
-if [[ ! -x "${VENV_UVICORN}" ]]; then
-  echo "ERROR: venv not found. Run: uv sync --extra dev" >&2
+if [[ -x "${VENV_UVICORN}" ]]; then
+  UVICORN="${VENV_UVICORN}"
+elif command -v uvicorn &>/dev/null; then
+  UVICORN="uvicorn"
+else
+  echo "ERROR: uvicorn not found. Run: uv sync --extra dev" >&2
   exit 1
 fi
 
-exec "${VENV_UVICORN}" app:app \
+exec "${UVICORN}" app:app \
   --host "${HOST}" \
   --port "${PORT}" \
   --workers "${WORKERS}" \

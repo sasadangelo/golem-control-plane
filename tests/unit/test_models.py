@@ -52,10 +52,10 @@ def test_agent_spec_defaults() -> None:
     """AgentSpec must apply sensible defaults."""
     from models import AgentSpec, SandboxMode
 
-    spec = AgentSpec(name="test", system_prompt="You are a test agent.")
-    assert spec.enabled_skills == []
+    spec = AgentSpec()
     assert spec.mode == SandboxMode.EPHEMERAL
     assert spec.ttl_seconds == 3600
+    assert spec.runner_config == ""
 
 
 def test_sandbox_status_values() -> None:
