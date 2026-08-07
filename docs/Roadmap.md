@@ -114,18 +114,39 @@ The agent pod continues running autonomously in its sandbox. If the `/health` en
 
 ## Post-MVP Milestones
 
-| Phase | Item |
-|---|---|
-| Phase 2 | Extract `golem-agent-sdk` (A2A lifecycle + identity) as standalone internal library |
-| Phase 2 | Extract `golem-framework` (LLM abstraction) as standalone internal library |
-| Phase 2 | Stateful Sandbox: PVC-backed agent pod for persistent state across sessions (e.g. code-assistant working on a Git repo) |
-| Phase 2 | Vault / external secret store integration |
-| Phase 2 | gVisor / Kata Containers for dynamic code execution |
-| Phase 2 | Go CLI binary (distributable without Python runtime) |
-| Phase 2 | **Provisioner Stage 1**: `DockerComposeProvisioner` for single-machine dev; `OpenShiftProvisioner` extending `KubernetesProvisioner` (Project + Route + SCC delta) |
-| Phase 3 | `golem-framework` AutoGen backend |
-| Phase 3 | `golem-framework` CrewAI backend |
-| Phase 3 | Multi-tenant isolation and RBAC |
-| Phase 3 | **Provisioner Stage 2 — IAL**: Infrastructure Profiles (named bundles of backend + quota + NetworkPolicy) selectable via `PROVISIONER_BACKEND` env var |
-| Phase 3 | **Provisioner Stage 3 — Operator**: `GolemAgent` CRD + Kubernetes Operator for GitOps-style agent management (coexists with REST API) |
-| Phase 3 | Web UI for agent management |
+### Phase 2 — Runner Split + LLM Gateway
+
+The `golem-runner` monolith is split into three focused repositories.  
+Each becomes a standalone internal library with its own `pyproject.toml`, versioning, and test suite.
+
+| Item | Repository | Description |
+|---|---|---|
+| Extract `golem-agent-sdk` | `golem-agent-sdk` | A2A lifecycle, Agent Card, heartbeat, platform identity — **no LLM dependency** |
+| Extract `golem-framework` | `golem-framework` | Agentic loop abstraction (LangGraph backend) + LLM Gateway |
+| **LLM Gateway — WatsonX** | `golem-framework` | `provider=watsonx`, `protocol=watsonx` — IBM Cloud native SDK |
+| **LLM Gateway — Ollama native** | `golem-framework` | `provider=ollama`, `protocol=ollama` — local Ollama REST API |
+| **LLM Gateway — Ollama OpenAI-compat** | `golem-framework` | `provider=ollama`, `protocol=openai` — Ollama `/v1` endpoint |
+| Thin runner entrypoint | `golem-runner` | Imports `golem-agent-sdk` + `golem-framework`; no embedded logic |
+| Stateful Sandbox | `golem-control-plane` | PVC-backed agent pod for persistent state across sessions |
+| Vault / external secret store | `golem-control-plane` | Replace K8s Secret with External Secrets Operator |
+| gVisor / Kata Containers | infra | Runtime isolation for dynamic code execution |
+| Go CLI binary | `golem-cli` | Distributable without Python runtime |
+| **Provisioner Stage 1** | `golem-control-plane` | `DockerComposeProvisioner` for single-machine dev; `OpenShiftProvisioner` extending `KubernetesProvisioner` |
+
+> **LLM Gateway placement rationale:** the gateway lives in `golem-framework`, not `golem-agent-sdk`.  
+> `golem-agent-sdk` must remain importable by non-LLM agents (A2A proxies, orchestrators).  
+> Swapping the agentic backend (LangGraph → AutoGen) and swapping the LLM backend (WatsonX → Ollama) are both `golem-framework` concerns and should evolve together.
+
+---
+
+### Phase 3 — Ecosystem Expansion
+
+| Item | Repository | Description |
+|---|---|---|
+| `golem-framework` AutoGen backend | `golem-framework` | `loop/autogen.py` — swap LangGraph for AutoGen |
+| `golem-framework` CrewAI backend | `golem-framework` | `loop/crewai.py` — swap LangGraph for CrewAI |
+| **LLM Gateway — OpenAI** | `golem-framework` | `provider=openai`, `protocol=openai` — public OpenAI API or any OpenAI-compat endpoint |
+| Multi-tenant isolation + RBAC | `golem-control-plane` | Per-tenant namespacing and API key scoping |
+| **Provisioner Stage 2 — IAL** | `golem-control-plane` | Infrastructure Profiles (named bundles of backend + quota + NetworkPolicy) selectable via `PROVISIONER_BACKEND` |
+| **Provisioner Stage 3 — Operator** | `golem-operator` | `GolemAgent` CRD + Kubernetes Operator for GitOps-style agent management (coexists with REST API) |
+| Web UI for agent management | `golem-ui` | React dashboard for agent lifecycle and A2A task monitoring |
