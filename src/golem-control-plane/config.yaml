@@ -19,3 +19,22 @@ log:
   rotation: "10 MB"
   retention: "7 days"
   compression: "zip"
+
+# ---------------------------------------------------------------------------
+# LOCAL SMOKE-TEST ONLY — never uncomment in production.
+#
+# Overrides used to run the full client → Control Plane → Runner flow on a
+# local workstation without Docker or Kubernetes.
+#
+# Steps:
+#   1. Start the runner:  cd <golem-runner>/src/golem-runner
+#                         uv run uvicorn main:app --port 8000
+#   2. Uncomment the block below.
+#   3. Start the Control Plane: uv run uvicorn interfaces.api.app:app --port 9000
+#   4. Create a sandbox via POST /agents (use the MockProvisioner or any agent
+#      whose handle you inject manually).
+#   5. Chat: wscat -c ws://localhost:9000/chat/<agent_id>
+# ---------------------------------------------------------------------------
+# test:
+#   provisioner: "mock"
+#   runner_url: "ws://localhost:8000/ws/chat"

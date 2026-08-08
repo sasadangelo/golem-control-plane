@@ -59,6 +59,31 @@ class LLMConfig(BaseSettings):
     )
 
 
+class TestConfig(BaseSettings):
+    """Local development / smoke-test overrides.
+
+    These fields are **never set in production**.  Uncomment the ``test``
+    section in ``config.yaml`` only on a local workstation.
+    """
+
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(extra="ignore")
+
+    provisioner: str = Field(
+        default="",
+        description=(
+            "If set to ``mock``, the MockProvisioner is used instead of KubernetesProvisioner. "
+            "Use only for local smoke-testing without K8s."
+        ),
+    )
+    runner_url: str = Field(
+        default="",
+        description=(
+            "If non-empty, the chat proxy connects to this WebSocket URL instead of "
+            "the in-cluster K8s address.  Use only for local smoke-testing without K8s."
+        ),
+    )
+
+
 class LogConfig(BaseSettings):
     """Logging settings."""
 
@@ -86,6 +111,7 @@ class Settings(BaseSettings):
     control_plane: ControlPlaneConfig = Field(default_factory=ControlPlaneConfig, alias="control-plane")
     llm: LLMConfig = Field(default_factory=LLMConfig)
     log: LogConfig = Field(default_factory=LogConfig)
+    test: TestConfig = Field(default_factory=TestConfig)
 
     @classmethod
     def settings_customise_sources(

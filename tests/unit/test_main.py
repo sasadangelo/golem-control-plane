@@ -4,11 +4,12 @@
 # -----------------------------------------------------------------------------
 """Unit tests for Control Plane REST endpoints."""
 
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from typing import cast
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -132,3 +133,78 @@ def test_list_agents(cp_client: TestClient, mock_provisioner: MagicMock) -> None
 def test_get_card_not_found(cp_client: TestClient) -> None:
     """GET /agents/{id}/card must return 404 when no card is registered."""
     assert _req(cp_client, "get", "/agents/does-not-exist/card").status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# WebSocket chat proxy tests
+# ---------------------------------------------------------------------------
+
+
+def test_ws_chat_unknown_agent_closes_4404(cp_client: TestClient) -> None:
+    """WS /chat/{id} must close with code 4404 when the agent does not exist."""
+    from starlette.websockets import WebSocketDisconnect as StarletteWSDisconnect
+
+    with pytest.raises(StarletteWSDisconnect) as exc_info:
+        with cp_client.websocket_connect("/chat/does-not-exist"):
+            pass  # pragma: no cover
+    assert exc_info.value.code == 4404
+
+
+def test_ws_chat_non_running_agent_closes_4503(cp_client: TestClient, mock_provisioner: MagicMock) -> None:
+    """WS /chat/{id} must close with code 4503 when the agent is not running."""
+    from domain.models import SandboxHandle, SandboxStatus
+    from starlette.websockets import WebSocketDisconnect as StarletteWSDisconnect
+
+    handle = SandboxHandle(agent_id="golem-agent-pending")
+    handle.status = SandboxStatus.PENDING
+    mock_provisioner.create_sandbox.return_value = handle
+    _post_agent(cp_client)
+
+    with pytest.raises(StarletteWSDisconnect) as exc_info:
+        with cp_client.websocket_connect("/chat/golem-agent-pending"):
+            pass  # pragma: no cover
+    assert exc_info.value.code == 4503
+
+
+def test_ws_chat_proxies_messages(cp_client: TestClient, mock_provisioner: MagicMock) -> None:
+    """WS /chat/{id} must forward client messages to the runner and stream tokens back."""
+    from domain.models import SandboxHandle, SandboxStatus
+
+    handle = SandboxHandle(agent_id="golem-agent-run")
+    handle.status = SandboxStatus.RUNNING
+    mock_provisioner.create_sandbox.return_value = handle
+    _post_agent(cp_client)
+
+    # Build a fake runner WebSocket that echoes two tokens then [DONE].
+    _sent: list[str] = []
+
+    class _FakeRunnerWS:
+        async def send(self, message: str) -> None:
+            _sent.append(message)
+
+        def __aiter__(self) -> AsyncIterator[str]:
+            return self._iter()
+
+        async def _iter(self) -> AsyncIterator[str]:
+            yield "Hello"
+            yield " world"
+            yield "[DONE]"
+
+        async def __aenter__(self) -> "_FakeRunnerWS":
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            pass
+
+    with patch("interfaces.api.app.websockets.connect", return_value=_FakeRunnerWS()):
+        with cp_client.websocket_connect("/chat/golem-agent-run") as ws:
+            ws.send_text("hi")
+            tokens = []
+            while True:
+                token = ws.receive_text()
+                tokens.append(token)
+                if token == "[DONE]":  # nosec B105
+                    break
+
+    assert _sent == ["hi"]
+    assert tokens == ["Hello", " world", "[DONE]"]

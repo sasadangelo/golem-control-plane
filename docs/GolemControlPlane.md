@@ -37,6 +37,7 @@ src/golem-control-plane/
 | `GET` | `/agents/{id}/status` | Get sandbox status + Agent Card |
 | `DELETE` | `/agents/{id}` | Tear down sandbox |
 | `GET` | `/agents/{id}/card` | Return A2A Agent Card (peer discovery) |
+| `WS` | `/chat/{id}` | Bidirectional streaming chat proxy to the runner pod |
 | `GET` | `/health` | Liveness probe |
 
 ### `POST /agents`
@@ -86,6 +87,28 @@ skills:
   }
 }
 ```
+
+### `WS /chat/{id}`
+
+Proxy WebSocket that forwards the session to the runner pod's `WS /ws/chat` endpoint.
+The agent must be in `running` state — if not, the connection is closed immediately with a reason code.
+
+**Protocol** (same as runner contract):
+
+| Direction | Format | Content |
+|---|---|---|
+| client → Control Plane | text UTF-8 | user message |
+| Control Plane → client | text UTF-8 | one LLM token |
+| Control Plane → client | text `[DONE]` | end-of-response sentinel |
+| Control Plane → client | text `[ERROR] …` | error from the runner loop |
+
+**Close codes:**
+
+| Code | Reason |
+|---|---|
+| `4404` | Agent not found |
+| `4503` | Agent not in `running` state |
+| `1011` | Unexpected proxy error |
 
 ---
 
@@ -173,7 +196,11 @@ curl -s http://localhost:9000/agents/<agent_id>/status | python3 -m json.tool
 # 3. list all agents
 curl -s http://localhost:9000/agents | python3 -m json.tool
 
-# 4. delete the agent
+# 4. stream a chat session (requires wscat: npm i -g wscat)
+wscat -c ws://localhost:9000/chat/<agent_id>
+# digita il tuo messaggio e ricevi i token in streaming, poi [DONE]
+
+# 5. delete the agent
 curl -s -X DELETE http://localhost:9000/agents/<agent_id>
 ```
 

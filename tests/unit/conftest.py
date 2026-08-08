@@ -50,6 +50,8 @@ _mock_settings.llm.api_key = ""
 _mock_settings.llm.url = "https://us-south.ml.cloud.ibm.com"
 _mock_settings.llm.project_id = ""
 _mock_settings.llm.model = "openai/gpt-oss-120b"
+_mock_settings.test.provisioner = ""
+_mock_settings.test.runner_url = ""
 
 _mock_log = MagicMock()
 _mock_log.LoggerManager = MagicMock()

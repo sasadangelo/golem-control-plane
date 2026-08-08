@@ -9,11 +9,14 @@ import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+import websockets
+import websockets.exceptions
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 
 from core.config import settings
 from core.log import LoggerManager, setup_logging
 from domain.models import AgentSpec, SandboxHandle, SandboxStatus
+from domain.ports.provisioner import Provisioner
 from infrastructure.adapters import card_registry
 from infrastructure.adapters.k8s_provisioner import KubernetesProvisioner
 from interfaces.api.schemas import AgentStatusResponse, CreateAgentResponse
@@ -27,7 +30,7 @@ setup_logging(
     compression=settings.log.compression,
 )
 
-logger = LoggerManager.get_logger("ControlPlaneApp")
+logger = LoggerManager.get_logger(name="ControlPlaneApp")
 
 # In-memory store of active sandboxes. Replaced by PostgreSQL in Week 3.
 _sandboxes: dict[str, SandboxHandle] = {}
@@ -52,7 +55,7 @@ async def _gc_loop() -> None:
     while True:
         await asyncio.sleep(GC_INTERVAL_SECONDS)
         now = time.time()
-        expired = [
+        expired: list[str] = [
             agent_id
             for agent_id, handle in list(_sandboxes.items())
             if now - _created_at.get(agent_id, now) > handle.ttl_seconds
@@ -62,7 +65,7 @@ async def _gc_loop() -> None:
             logger.info(f"TTL expired for agent {agent_id} — deleting sandbox")
             try:
                 provisioner.delete_sandbox(handle)
-            except Exception as e:
+            except (OSError, RuntimeError) as e:
                 logger.warning(f"GC could not delete sandbox {agent_id}: {e}")
             card_registry.deregister(agent_id)
             _sandboxes.pop(agent_id, None)
@@ -81,7 +84,21 @@ async def lifespan(app_: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("TTL garbage collector stopped")
 
 
-provisioner = KubernetesProvisioner()
+def _build_provisioner() -> Provisioner:
+    """Return the provisioner configured in settings.
+
+    Uses ``MockProvisioner`` when ``test.provisioner == "mock"`` to allow
+    local smoke-testing without a Kubernetes cluster.
+    """
+    if settings.test.provisioner == "mock":
+        from infrastructure.adapters.mock_provisioner import MockProvisioner
+
+        logger.warning("MockProvisioner active — for local smoke-testing only, never use in production")
+        return MockProvisioner()
+    return KubernetesProvisioner()
+
+
+provisioner: Provisioner = _build_provisioner()
 app = FastAPI(title="Golem Control Plane", version="0.1.0", lifespan=lifespan)
 
 
@@ -92,7 +109,7 @@ app = FastAPI(title="Golem Control Plane", version="0.1.0", lifespan=lifespan)
 
 @app.post("/agents", response_model=CreateAgentResponse, status_code=201)
 async def create_agent(
-    config: UploadFile = File(..., description="Runner config.yaml file."),
+    config: UploadFile = File(description="Runner config.yaml file."),  # noqa: B008
     ttl_seconds: int = Form(default=3600, description="Sandbox TTL in seconds."),
 ) -> CreateAgentResponse:
     """
@@ -195,6 +212,65 @@ async def get_agent_card(agent_id: str) -> dict:
     if not card:
         raise HTTPException(status_code=404, detail=f"Agent Card for {agent_id} not found.")
     return card
+
+
+@app.websocket("/chat/{agent_id}")
+async def chat_proxy(websocket: WebSocket, agent_id: str) -> None:
+    """
+    Proxy WebSocket chat sessions between a client and the agent runner pod.
+
+    Connects to ``ws://<pod>.<namespace>.svc.cluster.local:8000/ws/chat`` and
+    pumps messages bidirectionally until either side closes the connection.
+
+    Args:
+        websocket: The inbound client WebSocket connection.
+        agent_id: The agent sandbox identifier.
+    """
+    handle = _sandboxes.get(agent_id)
+    if not handle:
+        await websocket.close(code=4404, reason=f"Agent {agent_id} not found.")
+        return
+
+    if handle.status != SandboxStatus.RUNNING:
+        await websocket.close(code=4503, reason=f"Agent {agent_id} is not running (status={handle.status}).")
+        return
+
+    runner_url = settings.test.runner_url or f"ws://{handle.pod_name}.{handle.namespace}.svc.cluster.local:8000/ws/chat"
+    await websocket.accept()
+
+    try:
+        async with websockets.connect(runner_url) as runner_ws:  # type: ignore[attr-defined]
+            logger.info(f"Chat proxy open: client ↔ {agent_id} ({runner_url})")
+
+            async def _client_to_runner() -> None:
+                """Forward messages from the external client to the runner pod."""
+                async for message in websocket.iter_text():
+                    await runner_ws.send(message)
+
+            async def _runner_to_client() -> None:
+                """Forward tokens from the runner pod to the external client."""
+                async for token in runner_ws:
+                    await websocket.send_text(str(token))
+
+            _done, pending = await asyncio.wait(
+                [
+                    asyncio.ensure_future(_client_to_runner()),
+                    asyncio.ensure_future(_runner_to_client()),
+                ],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+
+    except websockets.exceptions.ConnectionClosed:
+        pass
+    except WebSocketDisconnect:
+        pass
+    except (OSError, TimeoutError, websockets.exceptions.WebSocketException) as e:
+        logger.warning(f"Chat proxy error for agent {agent_id}: {e}")
+        await websocket.close(code=1011, reason=str(e))
+    finally:
+        logger.info(f"Chat proxy closed: {agent_id}")
 
 
 @app.get(path="/health")

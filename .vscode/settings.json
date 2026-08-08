@@ -3,10 +3,11 @@
     "editor.formatOnSave": true,
     "editor.codeActionsOnSave": {
       "source.fixAll": "explicit",
-      "source.organizeImports": "explicit"
+      "source.organizeImports": "never"
     },
     "editor.defaultFormatter": "charliermarsh.ruff"
   },
+  "ruff.organizeImports": true,
   "flake8.enabled": false,
   "python.linting.flake8Enabled": false,
   "python.linting.enabled": true
