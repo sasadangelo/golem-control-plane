@@ -11,14 +11,19 @@ See also: [Architecture](Architecture.md) · [Golem Runner](GolemRunner.md) · [
 
 ```
 src/golem-control-plane/
-├── main.py             # FastAPI app — REST endpoints
-├── models.py           # AgentSpec, SandboxHandle, SandboxStatus
-├── provisioner.py      # Abstract Provisioner interface (ABC)
-├── k8s_provisioner.py  # Kubernetes implementation
-├── card_registry.py    # In-memory A2A Agent Card Registry (MVP)
-├── Dockerfile          # uv-based image, python:3.12-slim, port 9000
-├── pyproject.toml      # uv project dependencies
-└── .env.example        # Template for local runs
+├── interfaces/api/app.py          # FastAPI app — REST endpoints
+├── interfaces/api/schemas.py      # Pydantic request/response schemas
+├── domain/models.py               # AgentSpec, SandboxHandle, SandboxStatus
+├── domain/ports/provisioner.py    # Abstract Provisioner interface (ABC)
+├── infrastructure/adapters/
+│   ├── k8s_provisioner.py         # Kubernetes implementation
+│   └── card_registry.py           # In-memory A2A Agent Card Registry (MVP)
+├── core/config.py                 # Settings loaded from config.yaml
+├── core/log.py                    # Structured logging (loguru)
+├── config.yaml                    # Control Plane configuration
+├── Dockerfile                     # uv-based image, python:3.12-slim, port 9000
+├── pyproject.toml                 # uv project dependencies
+└── .env.example                   # Template for local runs
 ```
 
 ---
@@ -36,14 +41,26 @@ src/golem-control-plane/
 
 ### `POST /agents`
 
-**Request**
-```json
-{
-  "name": "log-analyzer",
-  "system_prompt": "You are a log analysis agent.",
-  "enabled_skills": ["bash", "http_check"],
-  "ttl_seconds": 3600
-}
+Accepts **`multipart/form-data`** (not JSON).
+
+| Field | Type | Required | Default | Description |
+|---|---|:---:|---|---|
+| `config` | file | ✅ | — | Runner `config.yaml` uploaded as a file |
+| `ttl_seconds` | int | | `3600` | Sandbox idle TTL before garbage collection |
+
+**Example runner `config.yaml`**
+```yaml
+agent:
+  name: log-analyzer
+  system_prompt: "You are a log analysis agent."
+
+llm:
+  provider: watsonx
+  model: openai/gpt-oss-120b
+
+skills:
+  - id: bash
+  - id: http_check
 ```
 
 **Response `201`**
@@ -72,15 +89,27 @@ src/golem-control-plane/
 
 ---
 
-## Environment Variables
+## Configuration
 
-| Variable | Required | Default | Description |
-|---|:---:|---|---|
-| `RUNNER_IMAGE` | | `golem-runner:v1` | Docker image used for agent pods |
-| `WATSONX_API_KEY` | ✅ | — | Injected into every agent pod |
-| `WATSONX_URL` | ✅ | `https://us-south.ml.cloud.ibm.com` | Injected into every agent pod |
-| `WATSONX_PROJECT_ID` | ✅ | — | Injected into every agent pod |
-| `WATSONX_MODEL_ID` | | `openai/gpt-oss-120b` | Injected into every agent pod |
+### Secret (`.env`)
+
+| Variable | Required | Description |
+|---|:---:|---|
+| `WATSONX_API_KEY` | ✅ | IBM Cloud API key — the only env var injected into every agent pod |
+
+### Non-secret (`config.yaml`)
+
+All other settings live in [`src/golem-control-plane/config.yaml`](../src/golem-control-plane/config.yaml).
+Key fields:
+
+| Key | Default | Description |
+|---|---|---|
+| `control-plane.runner_image` | `localhost/golem-runner:v1` | Docker image used for agent pods |
+| `control-plane.gc_interval` | `60` | TTL garbage-collector interval (seconds) |
+| `llm.provider` | `watsonx` | LLM provider identifier |
+| `llm.model` | `openai/gpt-oss-120b` | Model used by agents |
+| `llm.url` | `https://us-south.ml.cloud.ibm.com` | WatsonX regional endpoint |
+| `llm.project_id` | — | WatsonX project ID |
 
 ---
 
@@ -89,12 +118,14 @@ src/golem-control-plane/
 ```
 K8s Namespace: golem-agent-<id>
 ├── ResourceQuota   — CPU: 500m req / 1 limit · RAM: 512Mi req / 1Gi limit
-├── NetworkPolicy   — default-deny all egress
+├── NetworkPolicy   — default-deny egress (allows 443/TCP + 53/UDP for DNS)
+├── ConfigMap: runner-config  — mounts the uploaded config.yaml at /app/config.yaml
 └── Pod: golem-agent-<id>-runner
     ├── Image: golem-runner:v1
     ├── Port: 8000
     ├── LivenessProbe: GET /health
-    └── Env: AGENT_ID, SYSTEM_PROMPT, ENABLED_SKILLS, WATSONX_*
+    ├── VolumeMount: /app/config.yaml  (from ConfigMap runner-config)
+    └── Env: WATSONX_API_KEY
 ```
 
 ---
@@ -131,14 +162,10 @@ uv run uvicorn app:app --reload --port 9000
 ### Test the full flow
 
 ```bash
-# 1. create an agent
+# 1. create an agent (multipart upload of config.yaml)
 curl -s -X POST http://localhost:9000/agents \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "diagnostics-agent",
-    "system_prompt": "You are a network diagnostics agent.",
-    "enabled_skills": ["bash", "http_check"]
-  }' | python3 -m json.tool
+  -F "config=@/path/to/runner-config.yaml" \
+  -F "ttl_seconds=3600" | python3 -m json.tool
 
 # 2. poll status until running (Agent Card appears when pod is Ready)
 curl -s http://localhost:9000/agents/<agent_id>/status | python3 -m json.tool
