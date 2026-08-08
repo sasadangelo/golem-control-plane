@@ -1,6 +1,6 @@
 # Golem — Roadmap
 
-## MVP — 4-Week Sprint  `August 2026`
+## MVP — 5-Week Sprint  `August–September 2026`
 
 The goal of the MVP is a fully working **Agent-as-a-Service platform** running on any Kubernetes cluster (IBM Cloud, AWS, GCP, or a local Kind cluster).
 
@@ -31,9 +31,9 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 
 **Goal:** End-to-end streaming communication between user and agent, with full history.
 
-- [ ] WebSocket endpoint: `WS /chat/{agent_id}`
-- [ ] Single ClusterIP gateway proxy — no per-pod Ingress
-- [ ] Token streaming passthrough from pod to client
+- [x] WebSocket endpoint: `WS /chat/{agent_id}`
+- [x] Single ClusterIP gateway proxy — no per-pod Ingress
+- [x] Token streaming passthrough from pod to client
 - [ ] Message history stored in PostgreSQL
 - [ ] Agent state persistence in Redis
 - [ ] **`[new]`** A2A task lifecycle records (`submitted → working → completed / failed`)
@@ -43,7 +43,21 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 
 ---
 
-### Week 4 — Automations, A2A Delegation & CLI  `August W4`
+### Week 4 — Agent Identity & Behaviour  `August W4`
+
+**Goal:** Transform the runner from a generic chatbot into a real agent with defined identity and repeatable business-logic protocols.
+
+- [ ] `POST /agents` accepts optional `AGENTS.md` upload (`-F "agents_md=@AGENTS.md"`)
+- [ ] `POST /agents` accepts one or more `SKILL.md` uploads (`-F "skills=@<name>.md"`)
+- [ ] Control Plane mounts uploaded files into the pod via ConfigMap: `AGENTS.md` at `/app/AGENTS.md`, each skill at `/app/skills/<name>.md`
+- [ ] Runner reads `AGENTS.md` at boot and injects it into the LLM system message as behavioural context (*who the agent is*)
+- [ ] Runner indexes available `SKILL.md` files at boot; injects the relevant one lazily per turn (*how to solve a specific class of tasks, step by step, using the available tools*)
+
+**Deliverable:** an agent deployed with `AGENTS.md` + `SKILL.md` follows a precise, repeatable business protocol instead of improvising — e.g. "analyse HTTP 500 logs" always produces the same structured output regardless of how the question is phrased.
+
+---
+
+### Week 5 — Automations, A2A Delegation & CLI  `September W1`
 
 **Goal:** Background tasks, agent cooperation, and a polished CLI.
 
@@ -60,16 +74,16 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 
 ## Component × Week Delivery Matrix
 
-| Component | W1 | W2 | W3 | W4 |
-|---|:---:|:---:|:---:|:---:|
-| Agent Runner (Docker + LangGraph) | ✅ | — | — | Cron |
-| A2A Agent Card + inbound tasks **`[new]`** | ✅ | — | Broker | SendMsg |
-| Control Plane (FastAPI) | — | ✅ | Chat WS | Helm |
-| K8s Provisioner (Python k8s-client) | — | ✅ | — | — |
-| NetworkPolicy + TTL GC **`[new]`** | — | ✅ | — | — |
-| Persistence (PostgreSQL + Redis) | — | — | ✅ | — |
-| A2A task lifecycle + broker **`[new]`** | — | — | ✅ | — |
-| CLI (Python + Typer) | — | — | — | ✅ |
+| Component | W1 | W2 | W3 | W4 | W5 |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Agent Runner (Docker + LangGraph) | ✅ | — | — | AGENTS.md + SKILL.md | Cron |
+| A2A Agent Card + inbound tasks **`[new]`** | ✅ | — | Broker | — | SendMsg |
+| Control Plane (FastAPI) | — | ✅ | Chat WS | file upload + ConfigMap | Helm |
+| K8s Provisioner (Python k8s-client) | — | ✅ | — | — | — |
+| NetworkPolicy + TTL GC **`[new]`** | — | ✅ | — | — | — |
+| Persistence (PostgreSQL + Redis) | — | — | ✅ | — | — |
+| A2A task lifecycle + broker **`[new]`** | — | — | ✅ | — | — |
+| CLI (Python + Typer) | — | — | — | — | ✅ |
 
 ---
 
