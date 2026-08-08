@@ -27,19 +27,20 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 
 ---
 
-### Week 3 — Chat Router & Persistence  `August W3`
+### Week 3 — Chat Router & CLI  `August W3`
 
-**Goal:** End-to-end streaming communication between user and agent, with full history.
+**Goal:** End-to-end streaming communication between user and agent, usable from the terminal immediately.
 
 - [x] WebSocket endpoint: `WS /chat/{agent_id}`
 - [x] Single ClusterIP gateway proxy — no per-pod Ingress
 - [x] Token streaming passthrough from pod to client
-- [ ] Message history stored in PostgreSQL
-- [ ] Agent state persistence in Redis
+- [ ] Single conversation per agent: `WS /chat/{agent_id}` carries one implicit conversation (no `conversation_id` yet)
+- [ ] Single conversation state in-memory (one message list per agent, in the Control Plane process — no external dependency)
+- [ ] CLI `golem chat --agent <id>` — opens the single conversation for that agent
 - [ ] **`[new]`** A2A task lifecycle records (`submitted → working → completed / failed`)
 - [ ] **`[new]`** Control Plane as A2A broker: `GET /agents/{id}/card`, peer handshake endpoint
 
-**Deliverable:** `golem chat --agent <id>` streams responses live from the sandbox pod.
+**Deliverable:** `golem chat --agent <id>` streams responses live from the sandbox pod — usable immediately from the terminal.
 
 ---
 
@@ -57,18 +58,27 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 
 ---
 
-### Week 5 — Automations, A2A Delegation & CLI  `September W1`
+### Week 5 — Automations, A2A Delegation & Persistence  `September W1`
 
-**Goal:** Background tasks, agent cooperation, and a polished CLI.
+**Goal:** Background tasks, agent cooperation, polished CLI, multi-conversation support, and optional durable persistence.
 
 - [ ] Background tasks in Agent Runner: Cron, Timer, Webhook triggers
-- [ ] CLI in Python + Typer: `agent create`, `chat`, `agent list`
+- [ ] CLI commands: `golem agent create`, `golem agent list`
+- [ ] CLI: `golem agent tasks --agent <id>` — show A2A task lifecycle
 - [ ] Helm Chart for Control Plane deployment
 - [ ] **`[new]`** A2A `SendMessage` delegation between agents (e.g. `Log-Analyzer` → `Report-Writer`)
 - [ ] **`[new]`** Signed Agent Card validation in the Card Registry
-- [ ] **`[new]`** CLI: `golem agent tasks --agent <id>` — show A2A task lifecycle
+- [ ] Multi-conversation support: `WS /chat/{agent_id}?conversation_id=<uuid>` — each conversation isolated
+- [ ] Conversation state keyed by `(agent_id, conversation_id)` in-memory
+- [ ] CLI conversation management:
+  - `golem conv list --agent <id>` — list conversations for an agent
+  - `golem conv new --agent <id> [--name <label>]` — start a new conversation
+  - `golem conv switch --agent <id> <conv_id>` — resume an existing conversation
+  - `golem conv delete --agent <id> <conv_id>` — delete a conversation
+- [ ] Message history stored in PostgreSQL (optional — only if time permits; in-memory covers MVP)
+- [ ] Agent state persistence in Redis (deferred — real value comes with LangGraph checkpointer in Phase 2)
 
-**Deliverable:** a multi-agent flow works end-to-end; platform deployable on any K8s cluster via Helm.
+**Deliverable:** a multi-agent flow works end-to-end; full conversation management from CLI; platform deployable on any K8s cluster via Helm.
 
 ---
 
@@ -81,9 +91,12 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 | Control Plane (FastAPI) | — | ✅ | Chat WS | file upload + ConfigMap | Helm |
 | K8s Provisioner (Python k8s-client) | — | ✅ | — | — | — |
 | NetworkPolicy + TTL GC **`[new]`** | — | ✅ | — | — | — |
-| Persistence (PostgreSQL + Redis) | — | — | ✅ | — | — |
+| Single conversation state (in-memory) | — | — | ✅ | — | — |
 | A2A task lifecycle + broker **`[new]`** | — | — | ✅ | — | — |
-| CLI (Python + Typer) | — | — | — | — | ✅ |
+| CLI — `golem chat` | — | — | ✅ | — | — |
+| CLI — `agent create`, `agent list`, `agent tasks` | — | — | — | — | ✅ |
+| Multi-conversation + `golem conv *` CLI | — | — | — | — | ✅ |
+| Persistence (PostgreSQL + Redis) *(optional)* | — | — | — | — | ✅ |
 
 ---
 
