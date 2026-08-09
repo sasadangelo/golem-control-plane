@@ -41,7 +41,7 @@ class KubernetesProvisioner(Provisioner):
     # ------------------------------------------------------------------
 
     def create_sandbox(self, spec: AgentSpec) -> SandboxHandle:
-        """Create Namespace, ResourceQuota, NetworkPolicy, ConfigMap and Pod for the agent."""
+        """Create Namespace, ResourceQuota, NetworkPolicy, ConfigMap, Pod and Service for the agent."""
         handle = SandboxHandle(ttl_seconds=spec.ttl_seconds)
         logger.info(f"Creating sandbox '{handle.agent_id}' (ttl={spec.ttl_seconds}s)")
 
@@ -50,6 +50,7 @@ class KubernetesProvisioner(Provisioner):
         self._apply_network_policy(handle)
         self._create_runner_configmap(handle, spec)
         self._create_pod(handle, spec)
+        self._create_service(handle)
 
         return handle
 
@@ -186,6 +187,19 @@ class KubernetesProvisioner(Provisioner):
         )
         self._core.create_namespaced_pod(handle.namespace, pod)
         logger.debug(f"Pod '{handle.pod_name}' created in namespace '{handle.namespace}'")
+
+    def _create_service(self, handle: SandboxHandle) -> None:
+        """Create a ClusterIP Service so the pod is reachable by DNS within the cluster."""
+        svc = client.V1Service(
+            metadata=client.V1ObjectMeta(name=handle.pod_name, namespace=handle.namespace),
+            spec=client.V1ServiceSpec(
+                selector={"app": handle.pod_name},
+                ports=[client.V1ServicePort(port=8000, target_port=8000, protocol="TCP")],
+                type="ClusterIP",
+            ),
+        )
+        self._core.create_namespaced_service(handle.namespace, svc)
+        logger.debug(f"Service '{handle.pod_name}' created in namespace '{handle.namespace}'")
 
     def wait_for_running(self, handle: SandboxHandle, timeout: int = 120) -> SandboxHandle:
         """Block until the pod is Running or timeout expires."""

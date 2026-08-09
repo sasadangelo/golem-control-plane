@@ -25,6 +25,11 @@ rules:
     resources: ["configmaps"]
     verbs: ["get", "list", "create", "delete"]
 
+  # Create services for agent pods
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "create", "delete"]
+
   # Apply network policies per sandbox namespace
   - apiGroups: ["networking.k8s.io"]
     resources: ["networkpolicies"]

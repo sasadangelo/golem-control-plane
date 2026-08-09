@@ -114,20 +114,31 @@ def test_delete_unknown_agent_returns_404(cp_client: TestClient) -> None:
 
 
 def test_list_agents(cp_client: TestClient, mock_provisioner: MagicMock) -> None:
-    """GET /agents must return all created agents."""
+    """GET /agents must return all created agents with live status."""
     from domain.models import SandboxHandle, SandboxStatus
 
+    handles: list[SandboxHandle] = []
     for i in range(2):
         h = SandboxHandle(agent_id=f"golem-agent-list-{i}")
         h.status = SandboxStatus.PENDING
         mock_provisioner.create_sandbox.return_value = h
+        handles.append(h)
         _post_agent(cp_client)
+
+    # get_status returns the same handle (status promoted to RUNNING for one)
+    handles[0].status = SandboxStatus.RUNNING
+    mock_provisioner.get_status.side_effect = lambda handle: next(h for h in handles if h.agent_id == handle.agent_id)
 
     resp = _req(cp_client, "get", "/agents")
     assert resp.status_code == 200
-    ids = [a["agent_id"] for a in resp.json()]
-    assert "golem-agent-list-0" in ids
-    assert "golem-agent-list-1" in ids
+    agents = resp.json()
+    data = {a["agent_id"]: a for a in agents}
+    assert "golem-agent-list-0" in data
+    assert "golem-agent-list-1" in data
+    assert data["golem-agent-list-0"]["status"] == "running"
+    assert data["golem-agent-list-1"]["status"] == "pending"
+    assert "namespace" in data["golem-agent-list-0"]
+    assert "namespace" in data["golem-agent-list-1"]
 
 
 def test_get_card_not_found(cp_client: TestClient) -> None:

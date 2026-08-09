@@ -157,7 +157,8 @@ async def get_agent_status(agent_id: str) -> AgentStatusResponse:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found.")
 
     try:
-        handle = provisioner.get_status(handle)
+        loop = asyncio.get_event_loop()
+        handle = await loop.run_in_executor(None, provisioner.get_status, handle)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -169,6 +170,7 @@ async def get_agent_status(agent_id: str) -> AgentStatusResponse:
 
     return AgentStatusResponse(
         agent_id=handle.agent_id,
+        namespace=handle.namespace,
         status=handle.status,
         agent_card=handle.agent_card,
     )
@@ -194,14 +196,34 @@ async def delete_agent(agent_id: str) -> None:
 
 @app.get(path="/agents", response_model=list[AgentStatusResponse])
 async def list_agents() -> list[AgentStatusResponse]:
-    """List all known agent sandboxes."""
+    """List all known agent sandboxes with their current live status.
+
+    All get_status calls are dispatched concurrently in the thread-pool so that
+    one slow K8s API round-trip does not block the others.
+    """
+    loop = asyncio.get_event_loop()
+    snapshot = list(_sandboxes.items())
+
+    async def _refresh(agent_id: str, handle: SandboxHandle) -> SandboxHandle:
+        try:
+            handle = await loop.run_in_executor(None, provisioner.get_status, handle)
+        except Exception as e:
+            logger.warning(f"Could not refresh status for agent {agent_id}: {e}")
+        else:
+            _sandboxes[agent_id] = handle
+            if handle.status == SandboxStatus.RUNNING and not handle.agent_card:
+                card_registry.fetch_and_register(handle)
+        return handle
+
+    handles = await asyncio.gather(*(_refresh(aid, h) for aid, h in snapshot))
     return [
         AgentStatusResponse(
             agent_id=h.agent_id,
+            namespace=h.namespace,
             status=h.status,
             agent_card=h.agent_card,
         )
-        for h in _sandboxes.values()
+        for h in handles
     ]
 
 

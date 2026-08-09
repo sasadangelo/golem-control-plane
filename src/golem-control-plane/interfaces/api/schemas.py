@@ -15,5 +15,6 @@ class CreateAgentResponse(BaseModel):
 
 class AgentStatusResponse(BaseModel):
     agent_id: str
+    namespace: str
     status: str
     agent_card: dict | None = None
