@@ -197,6 +197,12 @@ Items are listed in **priority order** — each one makes the platform observabl
 | Go CLI binary | `golem-cli` | Distributable without Python runtime |
 | **Provisioner Stage 1** | `golem-control-plane` | `DockerComposeProvisioner` for single-machine dev; `OpenShiftProvisioner` extending `KubernetesProvisioner` |
 
+#### 2.7 — Multi-context CLI (kubectl-style)
+
+| Item | Repository | Description |
+|---|---|---|
+| **Multi-context support** | `golem-cli` | `~/.golem/config.yaml` with named contexts (name, url, token); `golem context list/add/use/delete`; all commands resolve the active context automatically — zero breaking change to existing interface |
+
 ---
 
 ### Phase 3 — Ecosystem Expansion
