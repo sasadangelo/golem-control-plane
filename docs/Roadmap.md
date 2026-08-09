@@ -8,25 +8,6 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 
 ---
 
-### Week 1 — Control Plane & K8s Provisioner  `August W2`
-
-**Goal:** Automate sandbox infrastructure creation.
-
-- [x] FastAPI skeleton: `POST /agents`, `GET /agents/{id}/status`, `DELETE /agents/{id}`, `GET /agents`
-- [x] Python `kubernetes-client` integration
-- [x] Create isolated Namespace + Pod per agent
-- [x] Apply `ResourceQuota` (CPU/RAM limits)
-- [x] **`[new]`** `NetworkPolicy`: allow HTTPS (443) + DNS (53) egress only — deny all else
-- [x] **`[new]`** Agent Card Registry: fetch and store card when pod reaches `Running`
-- [x] **`[new]`** TTL-based sandbox garbage collection
-- [x] **`[new]`** `Provisioner.create_sandbox()` abstract interface (K8s impl only for now)
-- [x] Local end-to-end test: Control Plane as local process → creates pods in Minikube ✅ pod Running in < 10 s
-- [x] **`[new]`** Deploy Control Plane inside Minikube (`golem-system` namespace + ServiceAccount + RBAC) ✅
-
-**Deliverable:** `POST /agents` creates a live, isolated sandbox pod in under 10 seconds. ✅
-
----
-
 ### Week 3 — Chat Router & CLI  `August W3`
 
 **Goal:** End-to-end streaming communication between user and agent, usable from the terminal immediately.
@@ -34,13 +15,13 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 - [x] WebSocket endpoint: `WS /chat/{agent_id}`
 - [x] Single ClusterIP gateway proxy — no per-pod Ingress
 - [x] Token streaming passthrough from pod to client
-- [ ] Single conversation per agent: `WS /chat/{agent_id}` carries one implicit conversation (no `conversation_id` yet)
-- [ ] Single conversation state in-memory (one message list per agent, in the Control Plane process — no external dependency)
-- [ ] CLI `golem chat --agent <id>` — opens the single conversation for that agent
+- [x] Single conversation per agent: `WS /chat/{agent_id}` carries one implicit conversation (no `conversation_id` yet)
+- [x] Single conversation state in-memory (one message list per agent, in the Control Plane process — no external dependency)
+- [x] CLI `golem chat --id <agent_id>` — opens the single conversation for that agent
 - [ ] **`[new]`** A2A task lifecycle records (`submitted → working → completed / failed`)
 - [ ] **`[new]`** Control Plane as A2A broker: `GET /agents/{id}/card`, peer handshake endpoint
 
-**Deliverable:** `golem chat --agent <id>` streams responses live from the sandbox pod — usable immediately from the terminal.
+**Deliverable:** `golem chat --id <agent_id>` streams responses live from the sandbox pod — usable immediately from the terminal. ✅
 
 ---
 
@@ -63,7 +44,8 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 **Goal:** Background tasks, agent cooperation, polished CLI, multi-conversation support, and optional durable persistence.
 
 - [ ] Background tasks in Agent Runner: Cron, Timer, Webhook triggers
-- [ ] CLI commands: `golem agent create`, `golem agent list`
+- [x] CLI commands: `golem agent create`, `golem agent list`, `golem agent delete`, `golem agent status`, `golem agent config`
+- [x] CLI commands: `golem cp add`, `golem cp use`, `golem cp list`, `golem cp remove`, `golem cp status` — multi-context control plane management
 - [ ] CLI: `golem agent tasks --agent <id>` — show A2A task lifecycle
 - [ ] Helm Chart for Control Plane deployment
 - [ ] **`[new]`** A2A `SendMessage` delegation between agents (e.g. `Log-Analyzer` → `Report-Writer`)
@@ -94,8 +76,10 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 | Single conversation state (in-memory) | — | — | ✅ | — | — |
 | A2A task lifecycle + broker **`[new]`** | — | — | ✅ | — | — |
 | CLI — `golem chat` | — | — | ✅ | — | — |
-| CLI — `agent create`, `agent list`, `agent tasks` | — | — | — | — | ✅ |
-| Multi-conversation + `golem conv *` CLI | — | — | — | — | ✅ |
+| CLI — `cp *` (multi-context control plane) | — | — | — | — | ✅ |
+| CLI — `agent create/list/delete/status/config` | — | — | — | — | ✅ |
+| CLI — `agent tasks` | — | — | — | — | [ ] |
+| Multi-conversation + `golem conv *` CLI | — | — | — | — | [ ] |
 | Persistence (PostgreSQL + Redis) *(optional)* | — | — | — | — | ✅ |
 
 ---
@@ -118,7 +102,7 @@ The Control Plane creates an isolated K8s Namespace, spawns the Agent Runner pod
 ### 2. Chat with the agent in its sandbox
 
 ```bash
-golem chat --agent log-analyzer-001
+golem chat --id log-analyzer-001
 > Analyse the last hour of logs and tell me if my application had any issues.
 ```
 

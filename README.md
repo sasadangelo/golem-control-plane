@@ -37,6 +37,26 @@ A background **TTL garbage collector** automatically tears down expired sandboxe
 
 ---
 
+## Features
+
+| Feature | Status |
+|---|:---:|
+| Provision an isolated K8s sandbox (Namespace + Pod + ResourceQuota + NetworkPolicy) per agent | ✅ |
+| Kubernetes RBAC — dedicated ServiceAccount with least-privilege ClusterRole | ✅ |
+| A2A Agent Card Registry — auto-fetches `/.well-known/agent.json` once pod is Running | ✅ |
+| TTL-based garbage collector — tears down expired sandboxes automatically | ✅ |
+| WebSocket chat proxy — streams LLM tokens from runner pod to client | ✅ |
+| Single in-memory conversation state per agent (one message history per agent) | ✅ |
+| `config.yaml` upload via multipart — injects runner configuration as a K8s ConfigMap | ✅ |
+| Control Plane deployable inside Minikube (`golem-system` namespace) | ✅ |
+| REST API: `POST /agents`, `GET /agents`, `GET /agents/{id}/status`, `DELETE /agents/{id}`, `GET /agents/{id}/card` | ✅ |
+| Abstract `Provisioner` interface (K8s + Mock implementations) | ✅ |
+| Multi-conversation support (`conversation_id` per session) | 🔜 |
+| Helm Chart for one-command deployment | 🔜 |
+| A2A task lifecycle broker (`submitted → working → completed / failed`) | 🔜 |
+
+---
+
 ## Prerequisites
 
 | Tool | Version | Purpose |
