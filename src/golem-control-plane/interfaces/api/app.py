@@ -26,6 +26,8 @@ from infrastructure.adapters.k8s_provisioner import KubernetesProvisioner
 from interfaces.api.schemas import (
     AgentStatusResponse,
     CreateAgentResponse,
+    HandshakeRequest,
+    HandshakeResponse,
     SubmitTaskRequest,
     TaskResponse,
     UpdateTaskRequest,
@@ -177,9 +179,16 @@ async def get_agent_status(agent_id: str) -> AgentStatusResponse:
 
     _sandboxes[agent_id] = handle
 
-    # Fetch Agent Card the first time the pod reaches Running
-    if handle.status == SandboxStatus.RUNNING and not handle.agent_card:
-        card_registry.fetch_and_register(handle)
+    # Register Agent Card the first time the pod reaches Running.
+    # Two paths:
+    #   1. handle.agent_card is already set (MockProvisioner populated it in get_status)
+    #      → write it directly into the registry.
+    #   2. handle.agent_card is None → fetch it from the pod via HTTP (K8s / real runner).
+    if handle.status == SandboxStatus.RUNNING and not card_registry.get_card(agent_id):
+        if handle.agent_card:
+            card_registry.register_card(agent_id=agent_id, card=handle.agent_card)
+        else:
+            card_registry.fetch_and_register(handle)
 
     return AgentStatusResponse(
         agent_id=handle.agent_id,
@@ -224,8 +233,11 @@ async def list_agents() -> list[AgentStatusResponse]:
             logger.warning(f"Could not refresh status for agent {agent_id}: {e}")
         else:
             _sandboxes[agent_id] = handle
-            if handle.status == SandboxStatus.RUNNING and not handle.agent_card:
-                card_registry.fetch_and_register(handle)
+            if handle.status == SandboxStatus.RUNNING and not card_registry.get_card(agent_id):
+                if handle.agent_card:
+                    card_registry.register_card(agent_id=agent_id, card=handle.agent_card)
+                else:
+                    card_registry.fetch_and_register(handle)
         return handle
 
     handles: list[SandboxHandle] = await asyncio.gather(*(_refresh(agent_id=aid, handle=h) for aid, h in snapshot))
@@ -247,6 +259,31 @@ async def get_agent_card(agent_id: str) -> dict:
     if not card:
         raise HTTPException(status_code=404, detail=f"Agent Card for {agent_id} not found.")
     return card
+
+
+@app.post(path="/agents/{agent_id}/handshake", response_model=HandshakeResponse)
+async def agent_handshake(agent_id: str, body: HandshakeRequest) -> HandshakeResponse:
+    """A2A peer handshake — runner pushes its Agent Card to the Control Plane broker.
+
+    Called by the runner pod at startup (push model).  The Control Plane
+    registers the card immediately so that peer-discovery via
+    ``GET /agents/{id}/card`` works without waiting for a status-poll cycle.
+
+    The sandbox must already exist (created via ``POST /agents``) before
+    the runner can handshake.
+
+    Args:
+        agent_id: The agent sandbox identifier.
+        body:     Request payload carrying the full A2A Agent Card.
+    """
+    if agent_id not in _sandboxes:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found.")
+
+    card_registry.register_card(agent_id=agent_id, card=body.card)
+    _sandboxes[agent_id].agent_card = body.card
+    logger.info(f"Handshake completed for agent {agent_id}")
+
+    return HandshakeResponse(registered=True, agent_id=agent_id)
 
 
 @app.websocket(path="/chat/{agent_id}")

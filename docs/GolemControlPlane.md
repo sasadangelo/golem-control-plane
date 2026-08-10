@@ -37,6 +37,7 @@ src/golem-control-plane/
 | `GET` | `/agents/{id}/status` | Get sandbox status + Agent Card |
 | `DELETE` | `/agents/{id}` | Tear down sandbox |
 | `GET` | `/agents/{id}/card` | Return A2A Agent Card (peer discovery) |
+| `POST` | `/agents/{id}/handshake` | Runner pushes its Agent Card at startup (A2A broker registration) |
 | `WS` | `/chat/{id}` | Bidirectional streaming chat proxy to the runner pod |
 | `GET` | `/health` | Liveness probe |
 
@@ -72,6 +73,48 @@ skills:
   "status": "pending"
 }
 ```
+
+### `POST /agents/{id}/handshake`
+
+Called by the **runner pod at startup** to register its Agent Card with the Control Plane broker
+(push model).  After a successful handshake, the card is immediately available via
+`GET /agents/{id}/card` — without waiting for a polling cycle.
+
+**Request body**
+```json
+{
+  "card": {
+    "id": "golem-agent-3f2a1b4c",
+    "name": "log-analyzer",
+    "description": "Scans application logs for HTTP 500 errors.",
+    "version": "0.1.0",
+    "endpoint": "http://golem-agent-3f2a1b4c.golem-agent-3f2a1b4c.svc.cluster.local:8000",
+    "capabilities": { "streaming": true, "pushNotifications": false },
+    "skills": [{ "id": "bash", "name": "bash" }]
+  }
+}
+```
+
+**Response `200`**
+```json
+{ "registered": true, "agent_id": "golem-agent-3f2a1b4c" }
+```
+
+**Error `404`** — sandbox not found (the agent must be created via `POST /agents` first).
+
+---
+
+### Agent Card registration — push vs pull
+
+The Control Plane maintains an in-memory **Agent Card Registry**.
+Cards can enter the registry via two complementary paths:
+
+| Path | Initiator | When | Notes |
+|---|---|---|---|
+| **Push (handshake)** | Runner pod | At pod startup | Immediate; runner calls `POST /agents/{id}/handshake` |
+| **Pull (polling)** | Control Plane | On first `GET /agents/{id}/status` when pod is `RUNNING` | Fallback if runner does not call handshake |
+
+---
 
 ### `GET /agents/{id}/status`
 

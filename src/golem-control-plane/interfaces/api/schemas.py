@@ -45,3 +45,21 @@ class TaskResponse(BaseModel):
     result: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class HandshakeRequest(BaseModel):
+    """Request body for POST /agents/{agent_id}/handshake.
+
+    The runner sends its full A2A Agent Card so the Control Plane can
+    register it immediately on startup (push model) rather than waiting
+    for the first status-poll to trigger a fetch (pull model).
+    """
+
+    card: dict
+
+
+class HandshakeResponse(BaseModel):
+    """Response body for POST /agents/{agent_id}/handshake."""
+
+    registered: bool
+    agent_id: str

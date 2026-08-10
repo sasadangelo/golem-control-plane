@@ -19,7 +19,7 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 - [x] Single conversation state in-memory (one message list per agent, in the Control Plane process — no external dependency)
 - [x] CLI `golem chat --id <agent_id>` — opens the single conversation for that agent
 - [x] **`[new]`** A2A task lifecycle records (`submitted → working → completed / failed`)
-- [ ] **`[new]`** Control Plane as A2A broker: `GET /agents/{id}/card`, peer handshake endpoint
+- [x] **`[new]`** Control Plane as A2A broker: `GET /agents/{id}/card`, peer handshake endpoint
 
 **Deliverable:** `golem chat --id <agent_id>` streams responses live from the sandbox pod — usable immediately from the terminal. ✅
 
@@ -71,7 +71,7 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 | Component | W1 | W2 | W3 | W4 | W5 |
 |---|:---:|:---:|:---:|:---:|:---:|
 | Agent Runner (Docker + LangGraph) | ✅ | — | — | AGENTS.md + SKILL.md + MCP | Cron |
-| A2A Agent Card + inbound tasks **`[new]`** | ✅ | — | Broker | — | SendMsg |
+| A2A Agent Card + inbound tasks **`[new]`** | ✅ | — | ✅ Broker | — | SendMsg |
 | Control Plane (FastAPI) | — | ✅ | Chat WS | file upload + ConfigMap | Helm |
 | K8s Provisioner (Python k8s-client) | — | ✅ | — | — | — |
 | NetworkPolicy + TTL GC **`[new]`** | — | ✅ | — | — | — |
@@ -79,7 +79,7 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 | A2A task lifecycle + broker **`[new]`** | — | — | ✅ | — | — |
 | CLI — `golem chat` | — | — | ✅ | — | — |
 | CLI — `cp *` (multi-context control plane) | — | — | — | — | ✅ |
-| CLI — `agent create/list/delete/status/config` | — | — | — | — | ✅ |
+| CLI — `agent create/list/delete/status/config/card` | — | — | — | — | ✅ |
 | CLI — `agent tasks` | — | — | — | — | [ ] |
 | Multi-conversation + `golem conv *` CLI | — | — | — | — | [ ] |
 | Persistence (PostgreSQL + Redis) *(optional)* | — | — | — | — | ✅ |

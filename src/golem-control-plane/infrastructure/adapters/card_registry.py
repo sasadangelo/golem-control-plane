@@ -17,6 +17,20 @@ logger = LoggerManager.get_logger("CardRegistry")
 _registry: dict[str, dict[str, Any]] = {}
 
 
+def register_card(agent_id: str, card: dict[str, Any]) -> None:
+    """Register an Agent Card pushed by the runner via handshake (push model).
+
+    Called by the handshake endpoint when a runner presents its own card
+    at startup, before the Control Plane has a chance to pull it.
+
+    Args:
+        agent_id: The unique agent identifier.
+        card:     The full A2A Agent Card dict sent by the runner.
+    """
+    _registry[agent_id] = card
+    logger.info(f"Agent Card registered via handshake for agent '{agent_id}'")
+
+
 def fetch_and_register(handle: SandboxHandle) -> dict[str, Any] | None:
     """
     Fetch the A2A Agent Card from the pod and store it in the registry.

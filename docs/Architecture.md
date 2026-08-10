@@ -25,7 +25,7 @@ The central brain of the platform. It is the only component exposed outside the 
 |---|---|
 | **REST / WebSocket API** | `POST /agents` to create an agent; `WS /chat/{agent_id}` to stream messages |
 | **Chat Proxy** | Single internal ClusterIP gateway that forwards WebSocket traffic to the correct agent pod — no per-agent Ingress required |
-| **A2A Card Registry** | Collects the Agent Card published by every pod at `/.well-known/agent.json`, verifies its signature, and answers peer-discovery queries ("who can do X?") |
+| **A2A Card Registry / Broker** | Collects Agent Cards via two paths: **push** (`POST /agents/{id}/handshake` — runner registers itself at startup) and **pull** (`GET /.well-known/agent.json` — polled on first status check). Answers peer-discovery queries via `GET /agents/{id}/card`. |
 | **K8s Provisioner** | Translates an agent creation request into a Kubernetes Namespace + Pod + ResourceQuota + NetworkPolicy + ConfigMap; also runs TTL-based garbage collection of idle sandboxes |
 | **Persistence** | Stores message history, agent state, and A2A task lifecycle records in PostgreSQL (durable) and Redis (fast ephemeral state) |
 
@@ -71,7 +71,7 @@ Tool endpoints are declared in the agent's `config.yaml` and whitelisted in the 
 
 #### A2A — Agent-to-Agent Protocol  `agent ↔ agent (horizontal)`
 
-An agent uses A2A to **delegate tasks to peer agents** as autonomous actors.  
+An agent uses A2A to **delegate tasks to peer agents** as autonomous actors.
 It is a task-delegation model with a full lifecycle (`submitted → working → completed / failed`) and structured artifact exchange.
 
 - Initial peer discovery is brokered by the Control Plane's **A2A Card Registry**
@@ -79,6 +79,76 @@ It is a task-delegation model with a full lifecycle (`submitted → working → 
 - Agent Cards are **signed** (A2A v1.0) to prevent a compromised sandbox from impersonating another agent
 
 **Rule of thumb:** data or actions → MCP. Another agent's judgment or specialised capability → A2A.
+
+---
+
+### Control Plane as A2A Broker
+
+The Control Plane acts as a **trusted broker** for peer discovery.
+It does not route tasks autonomously — it is a registry that agents and the CLI query to find who exists and what they can do.
+
+#### Handshake — push registration (runner → Control Plane)
+
+When a runner pod starts up, it pushes its own Agent Card to the Control Plane via a handshake call.
+This makes the card immediately available without waiting for a polling cycle.
+
+```
+Runner pod starts
+    │
+    └─► POST /agents/{id}/handshake  { card: { id, name, skills, ... } }
+              │
+              ▼
+        Control Plane
+        card_registry.register_card(agent_id, card)
+              │
+              ▼
+        200 OK  { registered: true }
+```
+
+#### Pull registration — fallback (Control Plane → runner)
+
+If the runner does not call handshake (older version, crash at startup), the Control Plane fetches
+the card automatically on the first `GET /agents/{id}/status` call when the pod is `RUNNING`.
+
+```
+CLI calls GET /agents/{id}/status
+    │
+    └─► Control Plane: pod is RUNNING, no card yet
+              │
+              └─► GET http://<pod>/.well-known/agent.json
+                        │
+                        ▼
+                  card_registry.fetch_and_register(handle)
+```
+
+#### Peer discovery — CLI or agent queries the registry
+
+```
+CLI / peer agent
+    │
+    └─► GET /agents/{id}/card
+              │
+              ▼
+        Control Plane returns the registered Agent Card
+        { id, name, description, skills, endpoint, capabilities }
+```
+
+#### Full registration → discovery → use flow
+
+```
+1. Runner pod starts
+   └─► POST /agents/{id}/handshake  →  card registered in Control Plane
+
+2. CLI discovers the agent
+   └─► GET /agents/{id}/card  →  { id, name, skills, endpoint }
+
+3. CLI submits a task
+   └─► POST /agents/{id}/tasks  { message: "analyse logs" }
+       └─► task_id returned, status=submitted
+
+4. CLI chats interactively
+   └─► WS /chat/{id}  →  token streaming
+```
 
 ---
 
