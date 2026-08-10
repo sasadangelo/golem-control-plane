@@ -18,7 +18,7 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 - [x] Single conversation per agent: `WS /chat/{agent_id}` carries one implicit conversation (no `conversation_id` yet)
 - [x] Single conversation state in-memory (one message list per agent, in the Control Plane process — no external dependency)
 - [x] CLI `golem chat --id <agent_id>` — opens the single conversation for that agent
-- [ ] **`[new]`** A2A task lifecycle records (`submitted → working → completed / failed`)
+- [x] **`[new]`** A2A task lifecycle records (`submitted → working → completed / failed`)
 - [ ] **`[new]`** Control Plane as A2A broker: `GET /agents/{id}/card`, peer handshake endpoint
 
 **Deliverable:** `golem chat --id <agent_id>` streams responses live from the sandbox pod — usable immediately from the terminal. ✅
@@ -34,6 +34,7 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 - [ ] Control Plane mounts uploaded files into the pod via ConfigMap: `AGENTS.md` at `/app/AGENTS.md`, each skill at `/app/skills/<name>.md`
 - [ ] Runner reads `AGENTS.md` at boot and injects it into the LLM system message as behavioural context (*who the agent is*)
 - [ ] Runner indexes available `SKILL.md` files at boot; injects the relevant one lazily per turn (*how to solve a specific class of tasks, step by step, using the available tools*)
+- [ ] **`[new]`** `POST /agents` accepts an optional `mcp_servers` list (static URIs); Control Plane stores them in the agent ConfigMap; Runner calls `MultiServerMCPClient` at boot and registers each server's tools into the LangGraph tool node — no registry yet, URI per agent
 
 **Deliverable:** an agent deployed with `AGENTS.md` + `SKILL.md` follows a precise, repeatable business protocol instead of improvising — e.g. "analyse HTTP 500 logs" always produces the same structured output regardless of how the question is phrased.
 
@@ -59,6 +60,7 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
   - `golem conv delete --agent <id> <conv_id>` — delete a conversation
 - [ ] Message history stored in PostgreSQL (optional — only if time permits; in-memory covers MVP)
 - [ ] Agent state persistence in Redis (deferred — real value comes with LangGraph checkpointer in Phase 2)
+- [ ] **`[new]`** Conversation history is unbounded in-memory — **known debt**: no cap, no summary; context window overflow is silently truncated by the framework; full rolling-summary strategy deferred to Phase 2 §2.2
 
 **Deliverable:** a multi-agent flow works end-to-end; full conversation management from CLI; platform deployable on any K8s cluster via Helm.
 
@@ -68,7 +70,7 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 
 | Component | W1 | W2 | W3 | W4 | W5 |
 |---|:---:|:---:|:---:|:---:|:---:|
-| Agent Runner (Docker + LangGraph) | ✅ | — | — | AGENTS.md + SKILL.md | Cron |
+| Agent Runner (Docker + LangGraph) | ✅ | — | — | AGENTS.md + SKILL.md + MCP | Cron |
 | A2A Agent Card + inbound tasks **`[new]`** | ✅ | — | Broker | — | SendMsg |
 | Control Plane (FastAPI) | — | ✅ | Chat WS | file upload + ConfigMap | Helm |
 | K8s Provisioner (Python k8s-client) | — | ✅ | — | — | — |
@@ -143,6 +145,7 @@ Items are listed in **priority order** — each one makes the platform observabl
 |---|---|---|
 | **LangGraph checkpointer on Redis** | `golem-framework` | Persist graph state at every step to Redis; survive pod restarts, TTL expiry, and human-in-the-loop pauses without losing the conversation |
 | Agent state + message history in Redis | `golem-control-plane` | Control Plane persists known sandboxes and chat history to Redis; survives Control Plane restarts |
+| **Conversation rolling summary** | `golem-framework` | When a conversation exceeds a configurable threshold (token count or message count), a LangGraph summary node calls the LLM to produce a condensed summary, replaces older messages with a single `SystemMessage("Summary: …")`, and persists the result to Redis — prevents context window overflow and unbounded memory growth. Requires Redis persistence above. |
 
 #### 2.3 — Multi-provider: choose the model per agent
 
@@ -159,19 +162,31 @@ Items are listed in **priority order** — each one makes the platform observabl
 > `golem-agent-sdk` must remain importable by non-LLM agents (A2A proxies, orchestrators).
 > Swapping the agentic backend (LangGraph → AutoGen) and swapping the LLM backend (WatsonX → Ollama) are both `golem-framework` concerns and should evolve together.
 
-#### 2.4 — Programmability: inject custom logic without rebuilding
+#### 2.4 — MCP Registry: one catalogue, many agents
+
+| Item | Repository | Description |
+|---|---|---|
+| **MCP Registry** | `golem-control-plane` | `POST /mcp` registers a named MCP server (name, URI, description, tags); `GET /mcp` lists available servers; `DELETE /mcp/{name}` removes one; `POST /agents` accepts `mcp_servers: [name]` — references resolved by the Control Plane at deploy time, URI injected into the agent ConfigMap; CLI: `golem mcp add / list / remove` |
+
+> **Why here (after §2.3, before §2.5):** Step 1 (Week 4) made MCP work per-agent with a raw URI. The Registry makes the same server reusable across N agents without repeating the URI. Multi-tenancy (§2.5) will then scope Registry entries per-tenant — so the Registry must exist first.
+
+> **Long-term direction → Phase 3:** MCP Marketplace — versioned, signed, public/private catalogue; `golem mcp search / install / publish`; signature verification before the runner mounts any server.
+
+---
+
+#### 2.5 — Programmability: inject custom logic without rebuilding
 
 | Item | Repository | Description |
 |---|---|---|
 | **Graph Plugin system** | `golem-framework` | `loop/plugin.py` — loads `build_graph()` from `/app/graph/pipeline.py` at boot; `POST /agents` accepts optional `-F "graph=@pipeline.py"`; Control Plane creates a second ConfigMap `runner-graph`; falls back to built-in ReAct loop if no plugin supplied |
 
-#### 2.5 — Multi-tenancy: open to other users
+#### 2.6 — Multi-tenancy: open to other users
 
 | Item | Repository | Description |
 |---|---|---|
 | Multi-tenant RBAC (lightweight) | `golem-control-plane` | Per-user API key scoped to a set of sandbox namespaces; no full OAuth required at this stage |
 
-#### 2.6 — Infrastructure
+#### 2.7 — Infrastructure
 
 | Item | Repository | Description |
 |---|---|---|
@@ -181,7 +196,7 @@ Items are listed in **priority order** — each one makes the platform observabl
 | Go CLI binary | `golem-cli` | Distributable without Python runtime |
 | **Provisioner Stage 1** | `golem-control-plane` | `DockerComposeProvisioner` for single-machine dev; `OpenShiftProvisioner` extending `KubernetesProvisioner` |
 
-#### 2.7 — Multi-context CLI (kubectl-style)
+#### 2.8 — Multi-context CLI (kubectl-style)
 
 | Item | Repository | Description |
 |---|---|---|
@@ -193,6 +208,7 @@ Items are listed in **priority order** — each one makes the platform observabl
 
 | Item | Repository | Description |
 |---|---|---|
+| **MCP Marketplace** | `golem-control-plane` | Versioned, signed, public/private registry of MCP servers; `golem mcp search / install / publish`; semantic versioning + signature verification before the runner mounts any server; builds on the MCP Registry introduced in §2.4 |
 | `golem-framework` AutoGen backend | `golem-framework` | `loop/autogen.py` — swap LangGraph for AutoGen |
 | `golem-framework` CrewAI backend | `golem-framework` | `loop/crewai.py` — swap LangGraph for CrewAI |
 | **LLM Gateway — OpenAI** | `golem-framework` | `provider=openai`, `protocol=openai` — public OpenAI API or any OpenAI-compat endpoint |
