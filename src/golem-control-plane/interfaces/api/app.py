@@ -6,8 +6,12 @@
 
 import asyncio
 import time
+from _asyncio import Task
+from asyncio.events import AbstractEventLoop
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
+from typing import Any
 
 import websockets
 import websockets.exceptions
@@ -15,11 +19,17 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, W
 
 from core.config import settings
 from core.log import LoggerManager, setup_logging
-from domain.models import AgentSpec, SandboxHandle, SandboxStatus
+from domain.models import A2ATask, AgentSpec, SandboxHandle, SandboxStatus, TaskStatus
 from domain.ports.provisioner import Provisioner
 from infrastructure.adapters import card_registry
 from infrastructure.adapters.k8s_provisioner import KubernetesProvisioner
-from interfaces.api.schemas import AgentStatusResponse, CreateAgentResponse
+from interfaces.api.schemas import (
+    AgentStatusResponse,
+    CreateAgentResponse,
+    SubmitTaskRequest,
+    TaskResponse,
+    UpdateTaskRequest,
+)
 
 setup_logging(
     level=settings.log.level,
@@ -38,7 +48,10 @@ _sandboxes: dict[str, SandboxHandle] = {}
 # Sandbox creation timestamps for TTL tracking {agent_id: created_at_epoch}
 _created_at: dict[str, float] = {}
 
-GC_INTERVAL_SECONDS = settings.control_plane.gc_interval
+# In-memory A2A task registry {task_id: A2ATask}
+_tasks: dict[str, A2ATask] = {}
+
+GC_INTERVAL_SECONDS: int = settings.control_plane.gc_interval
 
 
 # ---------------------------------------------------------------------------
@@ -61,7 +74,7 @@ async def _gc_loop() -> None:
             if now - _created_at.get(agent_id, now) > handle.ttl_seconds
         ]
         for agent_id in expired:
-            handle = _sandboxes[agent_id]
+            handle: SandboxHandle = _sandboxes[agent_id]
             logger.info(f"TTL expired for agent {agent_id} — deleting sandbox")
             try:
                 provisioner.delete_sandbox(handle)
@@ -75,7 +88,7 @@ async def _gc_loop() -> None:
 @asynccontextmanager
 async def lifespan(app_: FastAPI) -> AsyncGenerator[None, None]:
     """Start the TTL GC background task on startup and cancel it on shutdown."""
-    gc_task = asyncio.create_task(_gc_loop())
+    gc_task: Task[None] = asyncio.create_task(coro=_gc_loop())
     logger.info(f"TTL garbage collector started (interval={GC_INTERVAL_SECONDS}s)")
     try:
         yield
@@ -99,7 +112,7 @@ def _build_provisioner() -> Provisioner:
 
 
 provisioner: Provisioner = _build_provisioner()
-app = FastAPI(title="Golem Control Plane", version="0.1.0", lifespan=lifespan)
+app: FastAPI = FastAPI(title="Golem Control Plane", version="0.1.0", lifespan=lifespan)
 
 
 # ---------------------------------------------------------------------------
@@ -107,7 +120,7 @@ app = FastAPI(title="Golem Control Plane", version="0.1.0", lifespan=lifespan)
 # ---------------------------------------------------------------------------
 
 
-@app.post("/agents", response_model=CreateAgentResponse, status_code=201)
+@app.post(path="/agents", response_model=CreateAgentResponse, status_code=201)
 async def create_agent(
     config: UploadFile = File(description="Runner config.yaml file."),  # noqa: B008
     ttl_seconds: int = Form(default=3600, description="Sandbox TTL in seconds."),
@@ -121,14 +134,14 @@ async def create_agent(
 
     Creates a K8s Namespace + ConfigMap + Pod + ResourceQuota + NetworkPolicy.
     """
-    runner_config = (await config.read()).decode("utf-8")
+    runner_config: str = (await config.read()).decode(encoding="utf-8")
     spec = AgentSpec(
         ttl_seconds=ttl_seconds,
         runner_config=runner_config,
     )
 
     try:
-        handle = provisioner.create_sandbox(spec)
+        handle: SandboxHandle = provisioner.create_sandbox(spec)
     except Exception as e:
         logger.error(f"Failed to create sandbox: {e}")
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -157,7 +170,7 @@ async def get_agent_status(agent_id: str) -> AgentStatusResponse:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found.")
 
     try:
-        loop = asyncio.get_event_loop()
+        loop: AbstractEventLoop = asyncio.get_event_loop()
         handle = await loop.run_in_executor(None, provisioner.get_status, handle)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -201,8 +214,8 @@ async def list_agents() -> list[AgentStatusResponse]:
     All get_status calls are dispatched concurrently in the thread-pool so that
     one slow K8s API round-trip does not block the others.
     """
-    loop = asyncio.get_event_loop()
-    snapshot = list(_sandboxes.items())
+    loop: AbstractEventLoop = asyncio.get_event_loop()
+    snapshot: list[tuple[str, SandboxHandle]] = list(_sandboxes.items())
 
     async def _refresh(agent_id: str, handle: SandboxHandle) -> SandboxHandle:
         try:
@@ -215,7 +228,7 @@ async def list_agents() -> list[AgentStatusResponse]:
                 card_registry.fetch_and_register(handle)
         return handle
 
-    handles = await asyncio.gather(*(_refresh(aid, h) for aid, h in snapshot))
+    handles: list[SandboxHandle] = await asyncio.gather(*(_refresh(agent_id=aid, handle=h) for aid, h in snapshot))
     return [
         AgentStatusResponse(
             agent_id=h.agent_id,
@@ -227,16 +240,16 @@ async def list_agents() -> list[AgentStatusResponse]:
     ]
 
 
-@app.get("/agents/{agent_id}/card")
+@app.get(path="/agents/{agent_id}/card")
 async def get_agent_card(agent_id: str) -> dict:
     """Return the A2A Agent Card for an agent (A2A peer-discovery endpoint)."""
-    card = card_registry.get_card(agent_id)
+    card: dict[str, Any] | None = card_registry.get_card(agent_id)
     if not card:
         raise HTTPException(status_code=404, detail=f"Agent Card for {agent_id} not found.")
     return card
 
 
-@app.websocket("/chat/{agent_id}")
+@app.websocket(path="/chat/{agent_id}")
 async def chat_proxy(websocket: WebSocket, agent_id: str) -> None:
     """
     Proxy WebSocket chat sessions between a client and the agent runner pod.
@@ -248,7 +261,7 @@ async def chat_proxy(websocket: WebSocket, agent_id: str) -> None:
         websocket: The inbound client WebSocket connection.
         agent_id: The agent sandbox identifier.
     """
-    handle = _sandboxes.get(agent_id)
+    handle: SandboxHandle | None = _sandboxes.get(agent_id)
     if not handle:
         await websocket.close(code=4404, reason=f"Agent {agent_id} not found.")
         return
@@ -293,6 +306,137 @@ async def chat_proxy(websocket: WebSocket, agent_id: str) -> None:
         await websocket.close(code=1011, reason=str(e))
     finally:
         logger.info(f"Chat proxy closed: {agent_id}")
+
+
+# ---------------------------------------------------------------------------
+# A2A Task lifecycle endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.post(path="/agents/{agent_id}/tasks", response_model=TaskResponse, status_code=201)
+async def submit_task(agent_id: str, body: SubmitTaskRequest) -> TaskResponse:
+    """
+    Submit a new A2A task to an agent sandbox.
+
+    Creates a task record in ``submitted`` state and returns it immediately.
+    The runner is responsible for transitioning the task to ``working``,
+    then ``completed`` or ``failed`` via PATCH.
+
+    Args:
+        agent_id: The target agent sandbox identifier.
+        body: The task submission payload containing the instruction message.
+    """
+    if agent_id not in _sandboxes:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found.")
+
+    task: A2ATask = A2ATask(agent_id=agent_id, message=body.message)
+    _tasks[task.task_id] = task
+    logger.info(f"Task {task.task_id} submitted to agent {agent_id}")
+
+    return TaskResponse(
+        task_id=task.task_id,
+        agent_id=task.agent_id,
+        status=task.status,
+        message=task.message,
+        result=task.result,
+        created_at=task.created_at,
+        updated_at=task.updated_at,
+    )
+
+
+@app.get(path="/agents/{agent_id}/tasks", response_model=list[TaskResponse])
+async def list_tasks(agent_id: str) -> list[TaskResponse]:
+    """
+    List all A2A tasks for a given agent sandbox.
+
+    Args:
+        agent_id: The agent sandbox identifier.
+    """
+    if agent_id not in _sandboxes:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found.")
+
+    return [
+        TaskResponse(
+            task_id=t.task_id,
+            agent_id=t.agent_id,
+            status=t.status,
+            message=t.message,
+            result=t.result,
+            created_at=t.created_at,
+            updated_at=t.updated_at,
+        )
+        for t in _tasks.values()
+        if t.agent_id == agent_id
+    ]
+
+
+@app.get(path="/agents/{agent_id}/tasks/{task_id}", response_model=TaskResponse)
+async def get_task(agent_id: str, task_id: str) -> TaskResponse:
+    """
+    Return the current state of a single A2A task.
+
+    Args:
+        agent_id: The agent sandbox identifier.
+        task_id: The task identifier.
+    """
+    if agent_id not in _sandboxes:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found.")
+
+    task: A2ATask | None = _tasks.get(task_id)
+    if not task or task.agent_id != agent_id:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found for agent {agent_id}.")
+
+    return TaskResponse(
+        task_id=task.task_id,
+        agent_id=task.agent_id,
+        status=task.status,
+        message=task.message,
+        result=task.result,
+        created_at=task.created_at,
+        updated_at=task.updated_at,
+    )
+
+
+@app.patch(path="/agents/{agent_id}/tasks/{task_id}", response_model=TaskResponse)
+async def update_task(agent_id: str, task_id: str, body: UpdateTaskRequest) -> TaskResponse:
+    """
+    Update the status (and optional result) of an A2A task.
+
+    Called by the runner pod to advance the task through its lifecycle:
+    ``submitted → working → completed / failed``.
+
+    Args:
+        agent_id: The agent sandbox identifier.
+        task_id: The task identifier.
+        body: The updated status and optional result payload.
+    """
+    if agent_id not in _sandboxes:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found.")
+
+    task: A2ATask | None = _tasks.get(task_id)
+    if not task or task.agent_id != agent_id:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found for agent {agent_id}.")
+
+    try:
+        new_status: TaskStatus = TaskStatus(value=body.status)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid task status '{body.status}'.")
+
+    task.status = new_status
+    if body.result is not None:
+        task.result = body.result
+    task.updated_at = datetime.now(UTC)
+    logger.info(f"Task {task_id} for agent {agent_id} updated to status={new_status}")
+
+    return TaskResponse(
+        task_id=task.task_id,
+        agent_id=task.agent_id,
+        status=task.status,
+        message=task.message,
+        result=task.result,
+        created_at=task.created_at,
+        updated_at=task.updated_at,
+    )
 
 
 @app.get(path="/health")

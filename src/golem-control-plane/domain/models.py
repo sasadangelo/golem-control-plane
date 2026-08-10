@@ -5,6 +5,7 @@
 """Domain models for the Golem Control Plane."""
 
 import uuid
+from datetime import UTC, datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
@@ -45,3 +46,27 @@ class SandboxHandle(BaseModel):
             self.namespace = self.agent_id
         if not self.pod_name:
             self.pod_name = f"{self.agent_id}-runner"
+
+
+# ---------------------------------------------------------------------------
+# A2A Task lifecycle
+# ---------------------------------------------------------------------------
+
+
+class TaskStatus(StrEnum):
+    SUBMITTED = "submitted"
+    WORKING = "working"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class A2ATask(BaseModel):
+    """A single A2A task assigned to an agent sandbox."""
+
+    task_id: str = Field(default_factory=lambda: f"task-{uuid.uuid4().hex[:12]}")
+    agent_id: str
+    status: TaskStatus = TaskStatus.SUBMITTED
+    message: str = Field(default="", description="The input message / instruction for this task.")
+    result: str | None = Field(default=None, description="Output produced by the agent when the task completes.")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(tz=UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(tz=UTC))
