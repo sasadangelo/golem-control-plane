@@ -22,6 +22,14 @@ class AgentSpec(BaseModel):
     mode: SandboxMode = Field(default=SandboxMode.EPHEMERAL, description="Sandbox lifecycle mode.")
     ttl_seconds: int = Field(default=3600, description="Idle TTL before the sandbox is garbage-collected.")
     runner_config: str = Field(default="", description="Raw runner config.yaml content to mount in the pod.")
+    agents_md: str | None = Field(
+        default=None,
+        description="Optional AGENTS.md content to mount at /app/AGENTS.md inside the pod.",
+    )
+    skills: dict[str, str] = Field(
+        default_factory=dict,
+        description="Mapping of skill name to SKILL.md content. Each skill is mounted at /app/skills/<name>.md.",
+    )
 
 
 class SandboxStatus(StrEnum):

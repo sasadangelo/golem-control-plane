@@ -1,6 +1,6 @@
 ---
-name: init-python-project
-description: Use when the user types /init-python-project or asks to initialize/scaffold a new Python project using the python-blueprint structure. Creates the full project layout with uv, ruff, mypy, bandit, detect-secrets, pre-commit, pytest, and VS Code config.
+name: python-init
+description: Use when the user types /python-init or asks to initialize/scaffold a new Python project using the python-blueprint structure. Creates the full project layout with uv, ruff, mypy, bandit, detect-secrets, pre-commit, pytest, and VS Code config.
 metadata:
   disable-model-invocation: true
   argument-hint: "[project-name]"
@@ -12,7 +12,7 @@ Scaffold a new Python project based on https://github.com/sasadangelo/python-blu
 
 ## Step 1 — Determine the project name
 
-If the user passed an argument after `/init-python-project` (e.g. `/init-python-project my-agent`),
+If the user passed an argument after `/python-init` (e.g. `/python-init my-agent`),
 use that as the project name. Otherwise ask:
 
 ```
@@ -40,7 +40,7 @@ suggestion_b: "Directly in the current workspace root (.)"
 Execute the bundled script, passing project name, package name, and target directory:
 
 ```bash
-bash .bob/skills/init-python-project/scaffold.sh "<project-name>" "<package-name>" "<target-dir>"
+bash .bob/skills/python-init/scaffold.sh "<project-name>" "<package-name>" "<target-dir>"
 ```
 
 - When `<target-dir>` is `<project-name>`, the script creates a new subdirectory.
@@ -72,6 +72,7 @@ Report success and list the created structure (adjust the root label based on th
 Then remind the user of the next steps:
 
 **If a subfolder was created:**
+
 1. `cd <project-name>`
 2. `uv python install 3.14 && uv python pin 3.14`
 3. `uv sync --group dev`
@@ -84,12 +85,14 @@ Then remind the user of the next steps:
 10. `git push -u origin main`
 
 **If scaffolded in the workspace root:**
-1. `uv python install 3.14 && uv python pin 3.14`
-2. `uv sync --group dev`
-3. `uv run pre-commit install`
-4. `uv run pytest tests`
-5. `git init`
-6. `git add .`
-7. `git commit -m "chore: initial project scaffold"`
-8. `git remote add origin <remote-url>`
-9. `git push -u origin main`
+
+1.  `uv python install 3.14 && uv python pin 3.14`
+2.  `uv sync --group dev`
+3.  `uv run pytest tests`
+4.  `git init`
+5.  `uv run pre-commit install`
+6.  `git add .`
+7.  `git commit -m "chore: initial project scaffold"`
+8.  `git branch -M main`
+9.  `git remote add origin <remote-url>`
+10. `git push -u origin main`

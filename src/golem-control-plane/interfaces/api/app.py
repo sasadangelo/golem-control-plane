@@ -126,6 +126,8 @@ app: FastAPI = FastAPI(title="Golem Control Plane", version="0.1.0", lifespan=li
 async def create_agent(
     config: UploadFile = File(description="Runner config.yaml file."),  # noqa: B008
     ttl_seconds: int = Form(default=3600, description="Sandbox TTL in seconds."),
+    agents_md: UploadFile | None = File(default=None, description="Optional AGENTS.md file."),  # noqa: B008
+    skills: list[UploadFile] = File(default=[], description="Optional SKILL.md files (one per skill)."),  # noqa: B008
 ) -> CreateAgentResponse:
     """
     Provision a new isolated agent sandbox.
@@ -133,13 +135,28 @@ async def create_agent(
     Accepts a multipart/form-data request with:
     - ``config``: the runner config.yaml file
     - ``ttl_seconds``: optional sandbox TTL (default 3600)
+    - ``agents_md``: optional AGENTS.md file mounted at /app/AGENTS.md in the pod
+    - ``skills``: zero or more SKILL.md files; each is mounted at /app/skills/<filename>.md
 
     Creates a K8s Namespace + ConfigMap + Pod + ResourceQuota + NetworkPolicy.
     """
     runner_config: str = (await config.read()).decode(encoding="utf-8")
+
+    agents_md_content: str | None = None
+    if agents_md is not None:
+        agents_md_content = (await agents_md.read()).decode(encoding="utf-8")
+
+    skills_content: dict[str, str] = {}
+    for skill_file in skills:
+        # Use the bare filename stem as the skill name (e.g. "read-logs.md" → "read-logs")
+        skill_name = (skill_file.filename or "skill").removesuffix(".md")
+        skills_content[skill_name] = (await skill_file.read()).decode(encoding="utf-8")
+
     spec = AgentSpec(
         ttl_seconds=ttl_seconds,
         runner_config=runner_config,
+        agents_md=agents_md_content,
+        skills=skills_content,
     )
 
     try:

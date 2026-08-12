@@ -29,11 +29,11 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 
 **Goal:** Transform the runner from a generic chatbot into a real agent with defined identity and repeatable business-logic protocols.
 
-- [ ] `POST /agents` accepts optional `AGENTS.md` upload (`-F "agents_md=@AGENTS.md"`)
-- [ ] `POST /agents` accepts one or more `SKILL.md` uploads (`-F "skills=@<name>.md"`) — single `.md` files only at this stage; no scripts, no dependencies
-- [ ] Control Plane mounts uploaded files into the pod via ConfigMap: `AGENTS.md` at `/app/AGENTS.md`, each skill at `/app/skills/<name>.md`
-- [ ] Runner reads `AGENTS.md` at boot and injects it into the LLM system message as behavioural context (*who the agent is*)
-- [ ] Runner indexes available `SKILL.md` files at boot; injects the relevant one lazily per turn (*how to solve a specific class of tasks, step by step, using the available tools*)
+- [x] `POST /agents` accepts optional `AGENTS.md` upload (`-F "agents_md=@AGENTS.md"`)
+- [x] `POST /agents` accepts one or more `SKILL.md` uploads (`-F "skills=@<name>.md"`) — single `.md` files only at this stage; no scripts, no dependencies
+- [x] Control Plane mounts uploaded files into the pod via ConfigMap: `AGENTS.md` at `/app/AGENTS.md`, each skill at `/app/skills/<name>.md`
+- [x] Runner reads `AGENTS.md` at boot and injects it into the LLM system message as behavioural context (*who the agent is*)
+- [x] Runner indexes available `SKILL.md` files at boot; injects the relevant one lazily per turn (*how to solve a specific class of tasks, step by step, using the available tools*)
 - [ ] **`[new]`** `POST /agents` accepts an optional `mcp_servers` list (static URIs); Control Plane stores them in the agent ConfigMap; Runner calls `MultiServerMCPClient` at boot and registers each server's tools into the LangGraph tool node — no registry yet, URI per agent
 
 **Deliverable:** an agent deployed with `AGENTS.md` + `SKILL.md` follows a precise, repeatable business protocol instead of improvising — e.g. "analyse HTTP 500 logs" always produces the same structured output regardless of how the question is phrased.
@@ -255,7 +255,7 @@ skills:
 
 | Item | Repository | Description |
 |---|---|---|
-| Stateful Sandbox | `golem-control-plane` | PVC-backed agent pod for persistent state across sessions |
+| **Stateful Sandbox** (`mode: stateful`) | `golem-control-plane` | PVC-backed agent pod for persistent state across sessions; TTL GC disabled; `/workspace` PVC mounted at pod startup; `SandboxMode.STATEFUL` already in domain model — wire `--mode stateful` through CLI → `AgentSpec` → Provisioner |
 | Vault / external secret store | `golem-control-plane` | Replace K8s Secret with External Secrets Operator |
 | gVisor / Kata Containers | infra | Runtime isolation for dynamic code execution |
 | Go CLI binary | `golem-cli` | Distributable without Python runtime |
@@ -266,6 +266,47 @@ skills:
 | Item | Repository | Description |
 |---|---|---|
 | **Multi-context support** | `golem-cli` | `~/.golem/config.yaml` with named contexts (name, url, token); `golem context list/add/use/delete`; all commands resolve the active context automatically — zero breaking change to existing interface |
+
+#### 2.10 — Sandbox Modes: Stateful & Shared
+
+Golem supports three sandbox deployment modes, selectable via `--mode` at agent creation time.
+The `ephemeral` mode is the MVP default and already implemented.
+This section completes the other two.
+
+| Mode | Pod per user | TTL GC | Persistent storage | Multi-user | Equivalent to |
+|---|:---:|:---:|:---:|:---:|---|
+| **`ephemeral`** *(MVP — done)* | ✅ | ✅ | ❌ | ❌ | One-shot task, diagnostics |
+| **`stateful`** *(§2.8 + this section)* | ✅ | ❌ | ✅ PVC | ❌ | Long-lived personal assistant, code agent |
+| **`shared`** *(this section)* | ❌ one pod, N users | ❌ | optional | ✅ via `conversation_id` | Claude-style project, team helpdesk |
+
+**`mode: stateful` items** (completes §2.8):
+
+| Item | Repository | Description |
+|---|---|---|
+| Wire `--mode stateful` end-to-end | `golem-control-plane` + `golem-cli` | `AgentSpec.mode` already exists; Provisioner must skip TTL annotation and provision a PVC + VolumeMount at `/workspace` when `mode=stateful` |
+| GC loop skips stateful sandboxes | `golem-control-plane` | TTL GC checks `handle.mode`; sandboxes with `mode=stateful` are never garbage-collected automatically |
+
+**`mode: shared` items**:
+
+| Item | Repository | Description |
+|---|---|---|
+| `SandboxMode.SHARED` in domain model | `golem-control-plane` | Add `shared` value to `SandboxMode` enum; `AgentSpec.mode = shared` sets `ttl_seconds=0` (no GC) |
+| Provisioner: no TTL, no PVC for shared | `golem-control-plane` | Shared sandbox is a normal pod with no TTL annotation and no GC; one namespace, one pod, permanently alive until explicitly deleted |
+| GC loop skips shared sandboxes | `golem-control-plane` | Same guard as stateful — `handle.mode == SHARED` → skip |
+| Conversation state keyed by `(agent_id, conversation_id)` | `golem-control-plane` + `golem-runner` | Prerequisite: multi-conversation support (Week 5); shared mode is meaningless without it |
+| CLI: `golem agent create --mode shared` | `golem-cli` | `--mode` option added to `agent create`; default remains `ephemeral` — no breaking change |
+
+> **Prerequisite:** `mode: shared` requires multi-conversation `conversation_id` support (Week 5) to be in place. Deploy order: Week 5 → §2.8 stateful → §2.10 shared.
+
+> **Security note:** without RBAC (§2.7), any user who knows the `agent_id` can join a shared agent's conversations. §2.7 must be completed before exposing shared agents outside a trusted team.
+
+**CLI reference — all three modes:**
+
+```bash
+golem agent create --config config.yaml                   # ephemeral (default) — isolated pod, TTL
+golem agent create --config config.yaml --mode stateful   # stateful — isolated pod, PVC, no TTL
+golem agent create --config config.yaml --mode shared     # shared — one pod, N users, no TTL
+```
 
 ---
 

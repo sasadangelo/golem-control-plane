@@ -130,10 +130,24 @@ class KubernetesProvisioner(Provisioner):
         logger.debug(f"NetworkPolicy applied to namespace '{handle.namespace}'")
 
     def _create_runner_configmap(self, handle: SandboxHandle, spec: AgentSpec) -> None:
-        """Create a ConfigMap in the agent namespace mounting the runner config.yaml as-is."""
+        """Create a ConfigMap in the agent namespace with runner config, AGENTS.md, and skill files.
+
+        Keys:
+        - ``config.yaml``: always present — runner configuration.
+        - ``AGENTS.md``: present only when ``spec.agents_md`` is set.
+        - ``skill-<name>.md``: one key per entry in ``spec.skills``.
+        """
+        data: dict[str, str] = {"config.yaml": spec.runner_config}
+
+        if spec.agents_md is not None:
+            data["AGENTS.md"] = spec.agents_md
+
+        for skill_name, skill_content in spec.skills.items():
+            data[f"skill-{skill_name}.md"] = skill_content
+
         cm = client.V1ConfigMap(
             metadata=client.V1ObjectMeta(name="runner-config", namespace=handle.namespace),
-            data={"config.yaml": spec.runner_config},
+            data=data,
         )
         self._core.create_namespaced_config_map(handle.namespace, cm)
         logger.debug(f"ConfigMap 'runner-config' created in namespace '{handle.namespace}'")
@@ -143,6 +157,39 @@ class KubernetesProvisioner(Provisioner):
         env_vars = [
             client.V1EnvVar(name="WATSONX_API_KEY", value=settings.llm.api_key),
         ]
+
+        # Always mount config.yaml.
+        volume_mounts = [
+            client.V1VolumeMount(
+                name="runner-config",
+                mount_path="/app/config.yaml",
+                sub_path="config.yaml",
+                read_only=True,
+            )
+        ]
+
+        # Mount AGENTS.md at /app/AGENTS.md when provided.
+        if spec.agents_md is not None:
+            volume_mounts.append(
+                client.V1VolumeMount(
+                    name="runner-config",
+                    mount_path="/app/AGENTS.md",
+                    sub_path="AGENTS.md",
+                    read_only=True,
+                )
+            )
+
+        # Mount each skill at /app/skill-<name>.md.
+        for skill_name in spec.skills:
+            volume_mounts.append(
+                client.V1VolumeMount(
+                    name="runner-config",
+                    mount_path=f"/app/skills/{skill_name}.md",
+                    sub_path=f"skill-{skill_name}.md",
+                    read_only=True,
+                )
+            )
+
         pod = client.V1Pod(
             metadata=client.V1ObjectMeta(
                 name=handle.pod_name,
@@ -162,14 +209,7 @@ class KubernetesProvisioner(Provisioner):
                             requests={"cpu": "250m", "memory": "256Mi"},
                             limits={"cpu": "1", "memory": "1Gi"},
                         ),
-                        volume_mounts=[
-                            client.V1VolumeMount(
-                                name="runner-config",
-                                mount_path="/app/config.yaml",
-                                sub_path="config.yaml",
-                                read_only=True,
-                            )
-                        ],
+                        volume_mounts=volume_mounts,
                         liveness_probe=client.V1Probe(
                             http_get=client.V1HTTPGetAction(path="/health", port=8000),
                             initial_delay_seconds=15,

@@ -73,13 +73,12 @@ A background **TTL garbage collector** automatically tears down expired sandboxe
 
 ```
 golem-control-plane/
-├── src/golem-control-plane/   # Application source
-│   ├── app.py                 # FastAPI app, endpoints, TTL GC
-│   ├── models.py              # AgentSpec, SandboxHandle, SandboxStatus
-│   ├── provisioner.py         # Abstract Provisioner interface
-│   ├── k8s_provisioner.py     # Kubernetes implementation
-│   ├── card_registry.py       # In-memory A2A Card Registry
-│   └── .env.example           # Environment variable reference
+├── src/golem-control-plane/    # Application source
+│   ├── interfaces/api/app.py   # FastAPI app, endpoints, TTL GC
+│   ├── domain/models.py        # AgentSpec, SandboxHandle, SandboxStatus
+│   ├── domain/ports/           # Abstract Provisioner interface
+│   ├── infrastructure/         # K8s + Mock provisioner, Card Registry
+│   └── core/                   # Config, logging
 ├── deploy/golem-control-plane/ # K8s manifests
 │   ├── namespace.yaml
 │   ├── serviceaccount.yaml
@@ -88,12 +87,15 @@ golem-control-plane/
 │   ├── deployment.yaml
 │   ├── service.yaml
 │   └── secret.yaml.example
-├── tests/unit/                # Unit tests
-├── docs/                      # Architecture, Security, Roadmap
-├── app.sh                     # Start the server locally
-├── deploy.sh                  # Deploy to Minikube / K8s
-├── Dockerfile                 # Container image
-└── pyproject.toml             # Dependencies, ruff, pytest config
+├── minikube/
+│   └── load_images.sh          # Save image with Podman and load into Minikube
+├── tests/unit/                 # Unit tests
+├── docs/                       # Architecture, Security, Roadmap
+├── app.sh                      # Start the server locally
+├── build_images.sh             # Build the container image with Podman
+├── deploy.sh                   # Deploy to Minikube / K8s
+├── Dockerfile                  # Container image
+└── pyproject.toml              # Dependencies, ruff, pytest config
 ```
 
 ---
@@ -179,12 +181,8 @@ minikube start --driver=podman --container-runtime=containerd
 ### Step 2 — Build and load the Control Plane image
 
 ```bash
-podman build -t localhost/golem-control-plane:v1 .
-podman save localhost/golem-control-plane:v1 -o /tmp/golem-control-plane.tar
-minikube image load /tmp/golem-control-plane.tar
-
-# Verify
-minikube image ls | grep golem-control-plane
+./build_images.sh
+./minikube/load_images.sh
 ```
 
 ### Step 3 — Create the WatsonX credentials secret
