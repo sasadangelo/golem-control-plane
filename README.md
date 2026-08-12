@@ -18,6 +18,7 @@
 | [Security](docs/Security.md) | K8s RBAC, sandbox isolation, secrets management, and hardening roadmap |
 | [Golem Control Plane](docs/GolemControlPlane.md) | REST API reference, K8s Provisioner, A2A Card Registry |
 | [Roadmap](docs/Roadmap.md) | MVP sprint plan, delivery matrix, and post-MVP milestones |
+| [Demos](docs/Demos.md) | Catalogue of 10 high-impact demos — what to show, to whom, and in what order |
 
 ---
 
