@@ -34,7 +34,7 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 - [x] Control Plane mounts uploaded files into the pod via ConfigMap: `AGENTS.md` at `/app/AGENTS.md`, each skill at `/app/skills/<name>.md`
 - [x] Runner reads `AGENTS.md` at boot and injects it into the LLM system message as behavioural context (*who the agent is*)
 - [x] Runner indexes available `SKILL.md` files at boot; injects the relevant one lazily per turn (*how to solve a specific class of tasks, step by step, using the available tools*)
-- [ ] **`[new]`** `POST /agents` accepts an optional `mcp_servers` list (static URIs); Control Plane stores them in the agent ConfigMap; Runner calls `MultiServerMCPClient` at boot and registers each server's tools into the LangGraph tool node — no registry yet, URI per agent
+- [x] **`[new]`** `POST /agents` accepts an optional `mcp_servers` list (static URIs); Control Plane stores them in the agent ConfigMap; Runner calls `MultiServerMCPClient` at boot and registers each server's tools into the LangGraph tool node — no registry yet, URI per agent
 
 **Deliverable:** an agent deployed with `AGENTS.md` + `SKILL.md` follows a precise, repeatable business protocol instead of improvising — e.g. "analyse HTTP 500 logs" always produces the same structured output regardless of how the question is phrased.
 
