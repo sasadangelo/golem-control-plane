@@ -108,22 +108,14 @@ class KubernetesProvisioner(Provisioner):
         logger.debug(f"ResourceQuota applied to namespace '{handle.namespace}'")
 
     def _apply_network_policy(self, handle: SandboxHandle) -> None:
+        # Allow all egress — MCP servers may run on arbitrary ports.
+        # TODO §2.5: tighten once the MCP Registry introduces a known port set.
         policy = client.V1NetworkPolicy(
             metadata=client.V1ObjectMeta(name="default-deny-egress", namespace=handle.namespace),
             spec=client.V1NetworkPolicySpec(
                 pod_selector=client.V1LabelSelector(),
                 policy_types=["Egress"],
-                egress=[
-                    client.V1NetworkPolicyEgressRule(
-                        ports=[client.V1NetworkPolicyPort(port=443, protocol="TCP")],
-                    ),
-                    client.V1NetworkPolicyEgressRule(
-                        ports=[
-                            client.V1NetworkPolicyPort(port=53, protocol="UDP"),
-                            client.V1NetworkPolicyPort(port=53, protocol="TCP"),
-                        ],
-                    ),
-                ],
+                egress=[client.V1NetworkPolicyEgressRule()],
             ),
         )
         self._networking.create_namespaced_network_policy(handle.namespace, policy)
@@ -158,33 +150,36 @@ class KubernetesProvisioner(Provisioner):
             client.V1EnvVar(name="WATSONX_API_KEY", value=settings.llm.api_key),
         ]
 
+        # Runner app-dir is /app/src/golem-runner — all files must be mounted there.
+        _APP_DIR = "/app/src/golem-runner"
+
         # Always mount config.yaml.
         volume_mounts = [
             client.V1VolumeMount(
                 name="runner-config",
-                mount_path="/app/config.yaml",
+                mount_path=f"{_APP_DIR}/config.yaml",
                 sub_path="config.yaml",
                 read_only=True,
             )
         ]
 
-        # Mount AGENTS.md at /app/AGENTS.md when provided.
+        # Mount AGENTS.md at <app-dir>/AGENTS.md when provided.
         if spec.agents_md is not None:
             volume_mounts.append(
                 client.V1VolumeMount(
                     name="runner-config",
-                    mount_path="/app/AGENTS.md",
+                    mount_path=f"{_APP_DIR}/AGENTS.md",
                     sub_path="AGENTS.md",
                     read_only=True,
                 )
             )
 
-        # Mount each skill at /app/skill-<name>.md.
+        # Mount each skill at <app-dir>/skills/<name>.md.
         for skill_name in spec.skills:
             volume_mounts.append(
                 client.V1VolumeMount(
                     name="runner-config",
-                    mount_path=f"/app/skills/{skill_name}.md",
+                    mount_path=f"{_APP_DIR}/skills/{skill_name}.md",
                     sub_path=f"skill-{skill_name}.md",
                     read_only=True,
                 )

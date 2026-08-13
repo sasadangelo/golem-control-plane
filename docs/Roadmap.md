@@ -50,6 +50,8 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 - [x] CLI commands: `golem agent create`, `golem agent list`, `golem agent delete`, `golem agent status`, `golem agent config`
 - [x] CLI commands: `golem cp add`, `golem cp use`, `golem cp list`, `golem cp remove`, `golem cp status` — multi-context control plane management
 - [ ] CLI: `golem agent tasks --agent <id>` — show A2A task lifecycle
+- [ ] Docker Hub image build & publish for Control Plane (`sasadangelo/golem-control-plane:<tag>`)
+- [ ] Docker Hub image build & publish for Agent Runner (`sasadangelo/golem-runner:<tag>`)
 - [ ] Helm Chart for Control Plane deployment
 - [ ] **`[new]`** A2A `SendMessage` delegation between agents (e.g. `Log-Analyzer` → `Report-Writer`)
 - [ ] **`[new]`** Signed Agent Card validation in the Card Registry
@@ -227,13 +229,73 @@ skills:
 
 > **Long-term direction → Phase 3:** Skill Marketplace — versioned, signed, public/private catalogue of Git and OCI skill repositories; `golem skill search / install / publish`; per-skill virtualenv isolation; signature verification before the runner mounts any skill.
 
-#### 2.5 — MCP Registry: one catalogue, many agents
+#### 2.5 — MCP Registry & Deploy: one catalogue, many agents
+
+The MCP feature evolves in three steps across Week 4, §2.5, and Phase 3.
+
+##### Step 1 (Week 4 — done): raw URI per agent
+
+The user passes one or more MCP server URIs directly at `POST /agents`. No registry, no name resolution. The server must already be running and reachable.
+
+##### Step 2 (§2.5 — this section): Registry + Deploy
+
+`POST /mcp-servers` both **registers** the server in the Control Plane registry **and deploys its pod** — the two actions are atomic. Two deploy modes are supported:
+
+| Mode | Pod location | Who can use it | Use case |
+|------|-------------|----------------|----------|
+| **`shared`** | `golem-mcp-shared` namespace (one pod for all agents) | cluster-admin only | Shared utility servers (e.g. `kubernetes`, `github`) — solves the N×M pod problem |
+| **`dedicated`** | same namespace as the agent | any authenticated user | Tenant-isolated servers; pod lifecycle tied to the agent namespace |
+
+Once registered, agents reference servers **by name** — not by URI. The Control Plane resolves names → URIs at `POST /agents` time and writes the concrete URIs into the runner ConfigMap. The Runner never talks to the Registry directly.
+
+**API flow:**
+
+```bash
+# Admin registers + deploys a shared MCP server (cluster-admin only)
+POST /mcp-servers
+{
+  "name": "kubernetes",
+  "image": "ghcr.io/acme/mcp-kubernetes:latest",
+  "port": 8080,
+  "mode": "shared",        # "shared" | "dedicated"
+  "env": { "KUBECONFIG": "/etc/kube/config" }
+}
+# → deploys pod in golem-mcp-shared namespace
+# → registers URI http://kubernetes.golem-mcp-shared.svc:8080/sse
+
+# User registers + deploys a dedicated MCP server (any user)
+POST /mcp-servers
+{
+  "name": "my-git",
+  "image": "ghcr.io/acme/mcp-git:latest",
+  "port": 8080,
+  "mode": "dedicated"
+}
+# → pod deployed in the agent's own namespace at agent create time
+# → registered URI resolved per-agent
+
+# Agent references by name
+POST /agents  →  { "mcp_servers": ["kubernetes", "my-git"] }
+# Control Plane resolves names → URIs → writes to ConfigMap
+```
+
+**Management commands:**
+
+```bash
+golem mcp add   --name kubernetes --image ghcr.io/... --mode shared   # admin
+golem mcp add   --name my-git     --image ghcr.io/... --mode dedicated
+golem mcp list
+golem mcp remove --name my-git
+```
 
 | Item | Repository | Description |
 |---|---|---|
-| **MCP Registry** | `golem-control-plane` | `POST /mcp` registers a named MCP server (name, URI, description, tags); `GET /mcp` lists available servers; `DELETE /mcp/{name}` removes one; `POST /agents` accepts `mcp_servers: [name]` — references resolved by the Control Plane at deploy time, URI injected into the agent ConfigMap; CLI: `golem mcp add / list / remove` |
+| **MCP Registry + Deploy** | `golem-control-plane` | `POST /mcp-servers` registers + deploys (shared in `golem-mcp-shared`, dedicated in agent namespace); `GET /mcp-servers` lists; `DELETE /mcp-servers/{name}` removes + tears down pod; RBAC: `mode=shared` requires cluster-admin role |
+| **Name resolution at deploy** | `golem-control-plane` | `POST /agents` resolves `mcp_servers: [name]` → URIs via registry lookup; backward-compatible with Week 4 raw URIs |
+| **MCP default seed** | `golem-control-plane` | Helm Chart post-install Job seeds built-in entries (e.g. `filesystem`, `bash`, `http-check`) from `values.yaml` |
+| **CLI: `golem mcp *`** | `golem-cli` | `golem mcp add / list / remove` — wraps the `POST/GET/DELETE /mcp-servers` endpoints |
 
-> **Why here (after §2.3, before §2.6):** Step 1 (Week 4) made MCP work per-agent with a raw URI. The Registry makes the same server reusable across N agents without repeating the URI. Multi-tenancy (§2.6) will then scope Registry entries per-tenant — so the Registry must exist first.
+> **Why here (after §2.3, before §2.6):** Week 4 made MCP work per-agent with a raw URI. The Registry makes the same server reusable across N agents without repeating the URI. Multi-tenancy (§2.6) will then scope Registry entries per-tenant — the Registry must exist first.
 
 > **Long-term direction → Phase 3:** MCP Marketplace — versioned, signed, public/private catalogue; `golem mcp search / install / publish`; signature verification before the runner mounts any server.
 
