@@ -50,9 +50,9 @@ currently deployed.
 
 ---
 
-### 1 · Aria — SRE Agent
+### 1 · Fabio — SRE Agent
 
-**Persona:** Aria, Senior Site Reliability Engineer.
+**Persona:** Fabio, Senior Site Reliability Engineer.
 Probes endpoints, inspects the container environment, produces structured incident reports.
 
 **Files:** `examples/demo-sre/` ✅ already implemented
@@ -81,221 +81,14 @@ memory and disk, and tell me if this pod is healthy enough for production traffi
 
 ---
 
-### 2 · Rex — Security Auditor
+### 2 · Angelo — TRI Generator
 
-**Persona:** Rex, Container Security Analyst.
-Scans the container for security issues and produces a classified findings report.
-
-**The moment the audience remembers:**
-> You ask "audit this container" and Rex autonomously runs 8 bash commands — SUID files,
-> world-writable dirs, exposed env vars, open ports, suspicious processes — and returns a
-> report with HIGH / MEDIUM / LOW severity findings.
-
-**Demo questions:**
-```
-Who are you?
-Perform a full security audit of this container.
-Check if there are any world-writable directories under /app.
-List all environment variables and flag anything that looks like a secret or credential.
-Are there any SUID binaries in this container?
-Give me your final security verdict: is this container safe to run in production?
-```
-
-**Why it is impressive:**
-- The LLM reasons about security findings autonomously — but the report format is always
-  identical because `SKILL.md` defines the protocol
-- Secrets are automatically redacted (`AGENTS.md` constraint) — audience sees `[REDACTED]`
-  appear in the output without anyone having programmed that logic explicitly
-
-**Requires:** `bash` `agents-md` `skill-md`
-
----
-
-### 3 · Pulse — Uptime Monitor
-
-**Persona:** Pulse, Uptime & Availability Monitor.
-Continuously monitors a list of endpoints, alerts on failure, tracks degradation over time.
-
-**The moment the audience remembers:**
-> You tell Pulse to monitor 5 URLs every 30 seconds. You then deliberately break one
-> (httpstat.us/500). Pulse detects it on the next cycle and produces an alert — without
-> anyone asking.
-
-**Demo questions:**
-```
-Monitor these services every 30 seconds and alert me if any of them goes down:
-- https://google.com
-- https://github.com
-- https://httpstat.us/200
-- https://httpstat.us/500
-Start monitoring. I will wait.
-[wait 30s — Pulse detects the 500 and reports autonomously]
-The previous check flagged httpstat.us/500. Investigate further and tell me what
-the on-call engineer should do right now.
-```
-
-**Why it is impressive:**
-- Background cron trigger — the agent does something without being asked, then reports back
-- Shows the platform is not just a chatbot but an autonomous operator that keeps running
-
-**Requires:** `http_check` `agents-md` `skill-md` `cron`
-
----
-
-### 4 · Nova — Release Readiness
-
-**Persona:** Nova, Release Readiness Engineer.
-Runs a pre-deployment checklist and returns a binary READY / NOT READY verdict.
-
-**The moment the audience remembers:**
-> The output ends with a green ✅ READY FOR DEPLOYMENT or a red ❌ BLOCKED — 3 blockers found.
-> Every time. Same structure. No improvisation.
-
-**Demo questions:**
-```
-Who are you?
-Run a pre-deployment readiness check for this container.
-We are going live in 10 minutes. Is this pod ready for production traffic?
-One of the checks failed. What do I need to fix before we can deploy?
-```
-
-**Expected output shape:**
-```markdown
-## Release Readiness Report — order-service
-
-**Verdict: ✅ READY FOR DEPLOYMENT**
-
-### Checks (5/5 passed)
-- ✅ Config present at /app/config.yaml
-- ✅ Health endpoint: HTTP 200 in 34ms
-- ✅ WatsonX endpoint reachable
-- ✅ Memory: 780Mi available
-- ✅ No unexpected processes
-
-### Recommendations
-No blockers. Safe to proceed.
-```
-
-**Why it is impressive:**
-- The binary verdict (READY / NOT READY) is what a manager sees — not a wall of text
-- The checklist is defined in `SKILL.md` — it never changes, never forgets a step
-
-**Requires:** `bash` `http_check` `agents-md` `skill-md`
-
----
-
-### 5 · Iris — DB Analyst
-
-**Persona:** Iris, Data & Analytics Engineer.
-Queries a real PostgreSQL database in natural language and produces structured analytical reports.
-
-**The moment the audience remembers:**
-> You ask "what are the top 5 slowest API endpoints in the last 24 hours?" — no SQL, no
-> code. Iris writes the query, executes it against a real database, and returns a formatted
-> table with analysis and recommendations.
-
-**Demo questions:**
-```
-Who are you and what database do you have access to?
-What are the top 5 slowest API endpoints in the last 24 hours?
-Are there any users with more than 50 failed login attempts today? Flag them as suspicious.
-Give me a daily active users trend for the last 7 days as a table.
-Which API endpoints returned HTTP 500 more than 10 times this week?
-Summarise the overall health of this application based on what you see in the data.
-```
-
-**Why it is impressive:**
-- Real database, real data, real SQL — the audience can verify the numbers
-- The agent writes SQL it has never seen before based on the schema it discovers via MCP
-- The final "overall health" summary shows multi-step reasoning: multiple queries, then synthesis
-
-**Setup:** spin up a PostgreSQL container with a realistic demo dataset
-(API access logs: endpoint, status_code, duration_ms, user_id, timestamp).
-
-**Requires:** `mcp-pg` `agents-md` `skill-md`
-
----
-
-### 6 · Max — Git Historian
-
-**Persona:** Max, Engineering Intelligence Analyst.
-Reads a real Git repository and produces changelogs, risk assessments, and contribution summaries.
-
-**The moment the audience remembers:**
-> You point Max at your actual codebase. You ask "what changed in the last 10 commits?"
-> and get a plain-English summary that a non-technical manager can read. Then you ask
-> "which commits touched security-sensitive files?" and get a risk-classified list.
-
-**Demo questions:**
-```
-Who are you?
-Summarise the last 10 commits in plain English — one line each.
-Which commits in the last month touched authentication, secrets, or payment code?
-Generate a CHANGELOG.md entry for the v1.2.0 release based on the commits since v1.1.0.
-Who are the top 3 contributors this month and what areas did they work on?
-Is there any commit that looks risky or unusual? Explain why.
-```
-
-**Why it is impressive:**
-- Works on any real repo — the audience can point it at their own code
-- The CHANGELOG has a fixed format every time (SKILL.md) — it is a production tool, not a demo trick
-- The risk assessment shows the agent reasoning about what is security-sensitive — without
-  being given a list of sensitive files
-
-**Requires:** `mcp-git` `mcp-fs` `agents-md` `skill-md`
-
----
-
-### 7 · Leo — Service Onboarding
-
-**Persona:** Leo, Platform Engineering Assistant.
-Interviews a developer about a new service and generates all the boilerplate in one shot:
-Dockerfile, repo structure, health check, K8s manifests — then opens a PR on GitHub Enterprise.
-
-**The moment the audience remembers:**
-> The developer answers 5 questions. Leo generates a complete, production-quality repo layout
-> and opens a PR on GitHub Enterprise — in under 60 seconds. The PR is real, reviewable,
-> and mergeable.
-
-**Demo conversation:**
-```
-Hi Leo, I need to onboard a new service.
-
-[Leo asks:]
-  What is the service name?               → "payment-gateway"
-  What language / framework?              → "Python, FastAPI"
-  What port does it listen on?            → "8080"
-  External dependencies?                  → "PostgreSQL, Redis, IBM AppID"
-  Should I create a new GitHub repo?      → "yes, under org/backend-services"
-
-[Leo generates and pushes:]
-  ✅ Repo created: github.ibm.com/org/backend-services/payment-gateway
-  ✅ Dockerfile (Python 3.12, uv, non-root user, health check)
-  ✅ src/ layout with FastAPI skeleton + /health endpoint
-  ✅ k8s/deployment.yaml + service.yaml + configmap.yaml
-  ✅ .github/workflows/ci.yaml skeleton
-  ✅ PR #1 opened — ready for review
-```
-
-**Why it is impressive:**
-- The dev wrote zero boilerplate — only answered questions
-- The output is not Lorem Ipsum — it is real, working code tailored to the declared stack
-- The PR is on a real GitHub Enterprise instance — reviewable immediately
-
-**Setup:** a GitHub Enterprise org with a test group where Leo has write access.
-
-**Requires:** `mcp-fs` `mcp-github` `agents-md` `skill-md` `conv`
-
----
-
-### 8 · Sage — TRI Generator
-
-**Persona:** Sage, IBM Security & Compliance Analyst.
+**Persona:** Angelo, IBM Architect, Security & Compliance Analyst.
 Interviews a service owner about a new service through a structured 12-question protocol,
 then generates a complete IBM-standard Technical Requirements Interlock (TRI) document
 and saves it via MCP filesystem.
 
-**Files:** `examples/demo-sage/` ✅ implemented
+**Files:** `examples/demo-architecture/` ✅ implemented
 
 **The moment the audience remembers:**
 > The service owner answers 12 questions in natural language. Sage generates a complete
@@ -362,6 +155,213 @@ Hi Sage, I need to onboard a new service.
 Output directory at `/data/tri-output` writable by Sage.
 
 **Requires:** `mcp-fs` `agents-md` `skill-md` `conv`
+
+---
+
+### 3 · Gianluca — Document Agent
+
+**Persona:** Gianluca, Document Ingestion & Knowledge Agent.
+Accepts document ingestion, sends extracted knowledge through an LLM Wiki MCP flow, saves it into a wiki, then lets you converse with that document corpus.
+
+**The moment the audience remembers:**
+> You upload a product manual, a policy PDF, and a design note. Atlas ingests them, pushes
+> the structured knowledge into a wiki automatically, then answers detailed questions as if
+> the documentation had always been organized that way.
+
+**Demo questions:**
+```
+Create a document agent for this workspace.
+Ingest these documents into your knowledge base.
+Use the LLM Wiki MCP to extract and structure the content, then save it into the wiki.
+Now tell me:
+- what are the key concepts across these documents?
+- where do they disagree or overlap?
+- answer this question only using the ingested docs: how does the system handle failures?
+Show me the wiki page structure you created.
+```
+
+**Why it is impressive:**
+- Shows end-to-end document ingestion, knowledge extraction, and persistence into a wiki
+- The audience sees the jump from raw files to a conversational knowledge surface without manual curation
+
+**Requires:** `document-ingestion` `llm-wiki-mcp` `wiki` `agents-md` `skill-md`
+
+
+---
+
+### 4 · Rex — Security Auditor
+
+**Persona:** Rex, Container Security Analyst.
+Scans the container for security issues and produces a classified findings report.
+
+**The moment the audience remembers:**
+> You ask "audit this container" and Rex autonomously runs 8 bash commands — SUID files,
+> world-writable dirs, exposed env vars, open ports, suspicious processes — and returns a
+> report with HIGH / MEDIUM / LOW severity findings.
+
+**Demo questions:**
+```
+Who are you?
+Perform a full security audit of this container.
+Check if there are any world-writable directories under /app.
+List all environment variables and flag anything that looks like a secret or credential.
+Are there any SUID binaries in this container?
+Give me your final security verdict: is this container safe to run in production?
+```
+
+**Why it is impressive:**
+- The LLM reasons about security findings autonomously — but the report format is always
+  identical because `SKILL.md` defines the protocol
+- Secrets are automatically redacted (`AGENTS.md` constraint) — audience sees `[REDACTED]`
+  appear in the output without anyone having programmed that logic explicitly
+
+**Requires:** `bash` `agents-md` `skill-md`
+
+---
+
+### 5 · Nova — Release Readiness
+
+**Persona:** Nova, Release Readiness Engineer.
+Runs a pre-deployment checklist and returns a binary READY / NOT READY verdict.
+
+**The moment the audience remembers:**
+> The output ends with a green ✅ READY FOR DEPLOYMENT or a red ❌ BLOCKED — 3 blockers found.
+> Every time. Same structure. No improvisation.
+
+**Demo questions:**
+```
+Who are you?
+Run a pre-deployment readiness check for this container.
+We are going live in 10 minutes. Is this pod ready for production traffic?
+One of the checks failed. What do I need to fix before we can deploy?
+```
+
+**Expected output shape:**
+```markdown
+## Release Readiness Report — order-service
+
+**Verdict: ✅ READY FOR DEPLOYMENT**
+
+### Checks (5/5 passed)
+- ✅ Config present at /app/config.yaml
+- ✅ Health endpoint: HTTP 200 in 34ms
+- ✅ WatsonX endpoint reachable
+- ✅ Memory: 780Mi available
+- ✅ No unexpected processes
+
+### Recommendations
+No blockers. Safe to proceed.
+```
+
+**Why it is impressive:**
+- The binary verdict (READY / NOT READY) is what a manager sees — not a wall of text
+- The checklist is defined in `SKILL.md` — it never changes, never forgets a step
+
+**Requires:** `bash` `http_check` `agents-md` `skill-md`
+
+---
+
+### 6 · Iris — DB Analyst
+
+**Persona:** Iris, Data & Analytics Engineer.
+Queries a real PostgreSQL database in natural language and produces structured analytical reports.
+
+**The moment the audience remembers:**
+> You ask "what are the top 5 slowest API endpoints in the last 24 hours?" — no SQL, no
+> code. Iris writes the query, executes it against a real database, and returns a formatted
+> table with analysis and recommendations.
+
+**Demo questions:**
+```
+Who are you and what database do you have access to?
+What are the top 5 slowest API endpoints in the last 24 hours?
+Are there any users with more than 50 failed login attempts today? Flag them as suspicious.
+Give me a daily active users trend for the last 7 days as a table.
+Which API endpoints returned HTTP 500 more than 10 times this week?
+Summarise the overall health of this application based on what you see in the data.
+```
+
+**Why it is impressive:**
+- Real database, real data, real SQL — the audience can verify the numbers
+- The agent writes SQL it has never seen before based on the schema it discovers via MCP
+- The final "overall health" summary shows multi-step reasoning: multiple queries, then synthesis
+
+**Setup:** spin up a PostgreSQL container with a realistic demo dataset
+(API access logs: endpoint, status_code, duration_ms, user_id, timestamp).
+
+**Requires:** `mcp-pg` `agents-md` `skill-md`
+
+---
+
+### 7 · Max — Git Historian
+
+**Persona:** Max, Engineering Intelligence Analyst.
+Reads a real Git repository and produces changelogs, risk assessments, and contribution summaries.
+
+**The moment the audience remembers:**
+> You point Max at your actual codebase. You ask "what changed in the last 10 commits?"
+> and get a plain-English summary that a non-technical manager can read. Then you ask
+> "which commits touched security-sensitive files?" and get a risk-classified list.
+
+**Demo questions:**
+```
+Who are you?
+Summarise the last 10 commits in plain English — one line each.
+Which commits in the last month touched authentication, secrets, or payment code?
+Generate a CHANGELOG.md entry for the v1.2.0 release based on the commits since v1.1.0.
+Who are the top 3 contributors this month and what areas did they work on?
+Is there any commit that looks risky or unusual? Explain why.
+```
+
+**Why it is impressive:**
+- Works on any real repo — the audience can point it at their own code
+- The CHANGELOG has a fixed format every time (SKILL.md) — it is a production tool, not a demo trick
+- The risk assessment shows the agent reasoning about what is security-sensitive — without
+  being given a list of sensitive files
+
+**Requires:** `mcp-git` `mcp-fs` `agents-md` `skill-md`
+
+---
+
+### 8 · Leo — Service Onboarding
+
+**Persona:** Leo, Platform Engineering Assistant.
+Interviews a developer about a new service and generates all the boilerplate in one shot:
+Dockerfile, repo structure, health check, K8s manifests — then opens a PR on GitHub Enterprise.
+
+**The moment the audience remembers:**
+> The developer answers 5 questions. Leo generates a complete, production-quality repo layout
+> and opens a PR on GitHub Enterprise — in under 60 seconds. The PR is real, reviewable,
+> and mergeable.
+
+**Demo conversation:**
+```
+Hi Leo, I need to onboard a new service.
+
+[Leo asks:]
+  What is the service name?               → "payment-gateway"
+  What language / framework?              → "Python, FastAPI"
+  What port does it listen on?            → "8080"
+  External dependencies?                  → "PostgreSQL, Redis, IBM AppID"
+  Should I create a new GitHub repo?      → "yes, under org/backend-services"
+
+[Leo generates and pushes:]
+  ✅ Repo created: github.ibm.com/org/backend-services/payment-gateway
+  ✅ Dockerfile (Python 3.12, uv, non-root user, health check)
+  ✅ src/ layout with FastAPI skeleton + /health endpoint
+  ✅ k8s/deployment.yaml + service.yaml + configmap.yaml
+  ✅ .github/workflows/ci.yaml skeleton
+  ✅ PR #1 opened — ready for review
+```
+
+**Why it is impressive:**
+- The dev wrote zero boilerplate — only answered questions
+- The output is not Lorem Ipsum — it is real, working code tailored to the declared stack
+- The PR is on a real GitHub Enterprise instance — reviewable immediately
+
+**Setup:** a GitHub Enterprise org with a test group where Leo has write access.
+
+**Requires:** `mcp-fs` `mcp-github` `agents-md` `skill-md` `conv`
 
 ---
 
