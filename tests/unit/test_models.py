@@ -20,22 +20,21 @@ def _use_control_plane_path() -> None:
 
 
 def test_sandbox_handle_auto_generates_agent_id() -> None:
-    """SandboxHandle must auto-generate a unique agent_id when not provided."""
+    """SandboxHandle agent_id must be unique when two different ids are used."""
     from domain.models import SandboxHandle
 
-    h1 = SandboxHandle()
-    h2 = SandboxHandle()
+    h1 = SandboxHandle(agent_id="aria-sre-001")
+    h2 = SandboxHandle(agent_id="sage-tri-001")
     assert h1.agent_id != h2.agent_id
-    assert h1.agent_id.startswith("golem-agent-")
 
 
 def test_sandbox_handle_derives_namespace_and_pod_name() -> None:
     """namespace and pod_name must be derived from agent_id automatically."""
     from domain.models import SandboxHandle
 
-    h = SandboxHandle()
-    assert h.namespace == h.agent_id
-    assert h.pod_name == f"{h.agent_id}-runner"
+    h = SandboxHandle(agent_id="aria-sre-001")
+    assert h.namespace == "aria-sre-001"
+    assert h.pod_name == "aria-sre-001-runner"
 
 
 def test_sandbox_handle_explicit_agent_id() -> None:
@@ -52,7 +51,8 @@ def test_agent_spec_defaults() -> None:
     """AgentSpec must apply sensible defaults."""
     from domain.models import AgentSpec, SandboxMode
 
-    spec = AgentSpec()
+    spec = AgentSpec(agent_id="aria-sre-001")
+    assert spec.agent_id == "aria-sre-001"
     assert spec.mode == SandboxMode.EPHEMERAL
     assert spec.ttl_seconds == 3600
     assert spec.runner_config == ""

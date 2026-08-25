@@ -6,6 +6,8 @@
 
 import asyncio
 import time
+
+import yaml
 from _asyncio import Task
 from asyncio.events import AbstractEventLoop
 from collections.abc import AsyncGenerator
@@ -152,11 +154,27 @@ async def create_agent(
         skill_name = (skill_file.filename or "skill").removesuffix(".md")
         skills_content[skill_name] = (await skill_file.read()).decode(encoding="utf-8")
 
+    # Derive agent_id and env_secrets from config.yaml.
+    # agent_id → deterministic, human-readable namespace (e.g. "aria-sre-001").
+    # env_secrets → names of K8s Secrets already in the agent namespace to mount as envFrom.
+    try:
+        _cfg = yaml.safe_load(runner_config) or {}
+        agent_id: str = _cfg.get("agent", {}).get("id", "")
+        env_secrets: list[str] = _cfg.get("agent", {}).get("env_secrets", [])
+    except yaml.YAMLError:
+        agent_id = ""
+        env_secrets = []
+
+    if not agent_id:
+        raise HTTPException(status_code=422, detail="config.yaml must contain agent.id")
+
     spec = AgentSpec(
+        agent_id=agent_id,
         ttl_seconds=ttl_seconds,
         runner_config=runner_config,
         agents_md=agents_md_content,
         skills=skills_content,
+        env_secrets=env_secrets,
     )
 
     try:
@@ -317,10 +335,12 @@ async def chat_proxy(websocket: WebSocket, agent_id: str) -> None:
     """
     handle: SandboxHandle | None = _sandboxes.get(agent_id)
     if not handle:
+        await websocket.accept()
         await websocket.close(code=4404, reason=f"Agent {agent_id} not found.")
         return
 
     if handle.status != SandboxStatus.RUNNING:
+        await websocket.accept()
         await websocket.close(code=4503, reason=f"Agent {agent_id} is not running (status={handle.status}).")
         return
 

@@ -19,6 +19,7 @@ class SandboxMode(StrEnum):
 class AgentSpec(BaseModel):
     """Input specification for creating a new agent sandbox."""
 
+    agent_id: str = Field(description="Agent identifier from config.yaml — used as namespace and pod name prefix.")
     mode: SandboxMode = Field(default=SandboxMode.EPHEMERAL, description="Sandbox lifecycle mode.")
     ttl_seconds: int = Field(default=3600, description="Idle TTL before the sandbox is garbage-collected.")
     runner_config: str = Field(default="", description="Raw runner config.yaml content to mount in the pod.")
@@ -29,6 +30,10 @@ class AgentSpec(BaseModel):
     skills: dict[str, str] = Field(
         default_factory=dict,
         description="Mapping of skill name to SKILL.md content. Each skill is mounted at /app/skills/<name>.md.",
+    )
+    env_secrets: list[str] = Field(
+        default_factory=list,
+        description="Names of K8s Secrets already in the agent namespace to mount as envFrom.",
     )
 
 
@@ -42,7 +47,7 @@ class SandboxStatus(StrEnum):
 class SandboxHandle(BaseModel):
     """Runtime reference to a provisioned sandbox."""
 
-    agent_id: str = Field(default_factory=lambda: f"golem-agent-{uuid.uuid4().hex[:8]}")
+    agent_id: str = Field(description="Agent identifier — also used as namespace and pod name prefix.")
     namespace: str = ""
     pod_name: str = ""
     status: SandboxStatus = SandboxStatus.PENDING

@@ -32,14 +32,14 @@ currently deployed.
 
 | # | Name | Tags | Audience | Duration | Wow moment |
 |---|---|---|---|---|---|
-| 1 | [Aria — SRE Agent](#1--aria--sre-agent) | `bash` `http_check` `agents-md` `skill-md` | technical | 5 min | live container introspection |
-| 2 | [Rex — Security Auditor](#2--rex--security-auditor) | `bash` `agents-md` `skill-md` | security / technical | 5 min | autonomous audit with severity classification |
-| 3 | [Pulse — Uptime Monitor](#3--pulse--uptime-monitor) | `http_check` `agents-md` `skill-md` `cron` | devops / business | 5 min | monitors endpoints forever, alerts on failure |
-| 4 | [Nova — Release Readiness](#4--nova--release-readiness) | `bash` `http_check` `agents-md` `skill-md` | devops / management | 4 min | binary READY / NOT READY verdict with evidence |
-| 5 | [Iris — DB Analyst](#5--iris--db-analyst) | `mcp-pg` `agents-md` `skill-md` | business / data | 5 min | SQL from natural language on a real database |
-| 6 | [Max — Git Historian](#6--max--git-historian) | `mcp-git` `mcp-fs` `agents-md` `skill-md` | dev / architect | 5 min | CHANGELOG and risk analysis from real commits |
-| 7 | [Leo — Service Onboarding](#7--leo--service-onboarding) | `mcp-fs` `mcp-github` `agents-md` `skill-md` `conv` | dev / platform | 6 min | interview → Dockerfile + repo + PR in 60 seconds |
-| 8 | [Sage — TRI & Threat Model](#8--sage--tri--threat-model) | `mcp-fs` `mcp-github` `agents-md` `skill-md` `conv` | security / IBM internal | 8 min | interview → TRI + Threat Model + GHE PR |
+| 1 | [Fabio — SRE Agent](#1--demo--sre-agent) | `bash` `http_check` `AGENTS.md` `SKILL.md` | technical | 5 min | live container introspection |
+| 2 | [Angelo — TRI Generator](#8--demo--tri-generator) | `mcp-fs` `AGENTS.md` `SKILL.md` `conv` | security / IBM internal | 8 min | interview → complete IBM-standard TRI |
+| 3 | [Rex — Security Auditor](#2--rex--security-auditor) | `bash` `agents-md` `skill-md` | security / technical | 5 min | autonomous audit with severity classification |
+| 4 | [Pulse — Uptime Monitor](#3--pulse--uptime-monitor) | `http_check` `agents-md` `skill-md` `cron` | devops / business | 5 min | monitors endpoints forever, alerts on failure |
+| 5 | [Nova — Release Readiness](#4--nova--release-readiness) | `bash` `http_check` `agents-md` `skill-md` | devops / management | 4 min | binary READY / NOT READY verdict with evidence |
+| 6 | [Iris — DB Analyst](#5--iris--db-analyst) | `mcp-pg` `agents-md` `skill-md` | business / data | 5 min | SQL from natural language on a real database |
+| 7 | [Max — Git Historian](#6--max--git-historian) | `mcp-git` `mcp-fs` `agents-md` `skill-md` | dev / architect | 5 min | CHANGELOG and risk analysis from real commits |
+| 8 | [Leo — Service Onboarding](#7--leo--service-onboarding) | `mcp-fs` `mcp-github` `agents-md` `skill-md` `conv` | dev / platform | 6 min | interview → Dockerfile + repo + PR in 60 seconds |
 | 9 | [Duo — Incident Pipeline](#9--duo--incident-pipeline) | `bash` `http_check` `a2a` `agents-md` `skill-md` | technical / CTO | 6 min | two agents cooperate live: watcher delegates to reporter |
 | 10 | [Triad — Engineering Health Report](#10--triad--engineering-health-report) | `mcp-pg` `mcp-fs` `a2a` `agents-md` `skill-md` | executive / CTO | 8 min | one question → three agents → one board-ready report |
 | 11 | [Healer — Self-Healing Operator](#11--healer--self-healing-operator) | `bash` `http_check` `webhook` `skill-md` `agents-md` `mcp-slack` | platform / ops / IBM | 6 min | Sysdig fires → agent executes runbook → resolves without waking anyone |
@@ -288,67 +288,80 @@ Hi Leo, I need to onboard a new service.
 
 ---
 
-### 8 · Sage — TRI & Threat Model
+### 8 · Sage — TRI Generator
 
 **Persona:** Sage, IBM Security & Compliance Analyst.
-Interviews a service owner about a new service, generates a TRI (Technical Risk Inventory)
-and a Threat Model following IBM standards, then opens a PR on GitHub Enterprise.
+Interviews a service owner about a new service through a structured 12-question protocol,
+then generates a complete IBM-standard Technical Requirements Interlock (TRI) document
+and saves it via MCP filesystem.
+
+**Files:** `examples/demo-sage/` ✅ implemented
 
 **The moment the audience remembers:**
-> A service owner answers 8 questions in natural language. Sage generates two complete
-> IBM-standard documents — TRI and Threat Model — and opens a PR on the security-docs repo.
-> What used to take 2 days of back-and-forth with the security team takes 4 minutes.
+> The service owner answers 12 questions in natural language. Sage generates a complete
+> IBM-standard TRI — every section filled, every table populated — and writes it to disk.
+> What used to take 2 days of back-and-forth with the security team takes 8 minutes.
 
 **Demo conversation:**
 ```
-Hi Sage, I need to onboard a new service through the security review process.
+Hi Sage, I need to onboard a new service.
 
-[Sage asks:]
-  Service name and purpose?
-  → "PaymentGateway — handles PCI-DSS card transactions"
+[Sage conducts structured 12-question interview:]
+  Q1  Service name & purpose
+      → "PaymentGateway — handles PCI-DSS card transactions for IBM TLS clients"
 
-  Does it process, store, or transmit personal or financial data?
-  → "Yes — tokenised card numbers, transaction amounts"
+  Q2  Ownership
+      → "PM: Anna Rossi — Dev: Luca Bianchi"
 
-  External dependencies? (APIs, databases, third-party services)
-  → "PostgreSQL, Stripe API, IBM AppID"
+  Q3  TRI approvers & reviewers
+      → "Approver: sec-review@ibm.com — Reviewer: platform@ibm.com"
 
-  Authentication mechanism?
-  → "IBM AppID OAuth2, service-to-service via mTLS"
+  Q4  Assumptions
+      → "Access to PostgreSQL on IBM Cloud, Stripe API, IBM AppID"
 
-  Deployment environment?
-  → "IBM Cloud Kubernetes, us-south region"
+  Q5  Success metrics
+      → "95% of transactions < 2s, zero plain-text card data, SOC2 compliant"
 
-  Is it internet-facing?
-  → "Yes, public API behind IBM API Connect"
+  Q6  Architecture & AI
+      → "Two Python microservices. Uses IBM Granite 3.8B via WatsonX for fraud detection."
 
-  Data retention policy?
-  → "Transaction logs 7 years (regulatory requirement)"
+  Q7  Trust zones
+      → "Kubernetes Cluster, IBM Cloud Services, Internet (API Connect)"
 
-  Existing security controls?
-  → "WAF, DDoS protection via IBM Cloud Internet Services"
+  Q8  Interfaces & endpoints
+      → "POST /payments — public, IBM API Connect, OAuth2 AppID"
 
-[Sage reads existing TRI/TM examples via MCP filesystem]
-[Sage generates documents in IBM standard format]
-[Sage pushes to GitHub Enterprise via MCP GitHub]
+  Q9  Data flows
+      → "Client → API Connect: HTTPS TLS 1.3, card token, classification: client-SPI"
 
-  ✅ TRI-PaymentGateway.md generated (12 risk items identified, 3 HIGH)
-  ✅ ThreatModel-PaymentGateway.md generated (STRIDE analysis, 8 threats)
-  ✅ PR #47 opened: github.ibm.com/org/security-docs/pull/47
-     Branch: security/tri-payment-gateway-2026-08
-     Reviewers: @security-team auto-assigned
+  Q10 Datastores
+      → "PostgreSQL: transaction logs, AES-256, Key Protect, 7-year retention"
+
+  Q11 External dependencies
+      → "IBM AppID, API Connect, Stripe API, Secrets Manager, Key Protect"
+
+  Q12 Reliability & operations
+      → "2 replicas/2 AZs, OnePipeline CI/CD, PagerDuty. Risk: Stripe egress via Calico."
+
+[Sage reads TRI-template.md via MCP filesystem]
+[Sage generates complete IBM-standard TRI — all sections filled]
+[Sage writes TRI to /data/tri-output/ via MCP filesystem]
+
+  ✅ Phase 2 complete — TRI generated for PaymentGateway
+  ✅ Phase 3 complete — TRI saved to /data/tri-output/TRI-PaymentGateway-2026-08.md
 ```
 
 **Why it is impressive:**
-- Replaces 2 days of manual work with a 4-minute conversation
-- Documents follow the exact IBM standard — because `SKILL.md` encodes the protocol
-- The PR is real, on the real GHE security-docs repo — the security team can review immediately
-- The agent identifies HIGH risk items autonomously (PCI-DSS data + internet-facing = flag)
+- Replaces 2 days of manual work with an 8-minute conversation
+- The TRI follows the exact IBM standard — `SKILL.md` encodes the protocol, not the LLM's memory
+- Every section is filled: trust zones, data flows, datastores, AI considerations — all populated
+- The agent reads the template from disk via MCP — the output is traceable and auditable
+- One CLI command deploys the agent; `golem agent delete` tears it down cleanly
 
-**Setup:** 2-3 anonymised TRI and Threat Model examples in a local directory (MCP filesystem).
-A GitHub Enterprise repo `security-docs` where Sage has write access.
+**Setup:** MCP filesystem server mounted at `/data/tri-templates` with `TRI-template.md`.
+Output directory at `/data/tri-output` writable by Sage.
 
-**Requires:** `mcp-fs` `mcp-github` `agents-md` `skill-md` `conv`
+**Requires:** `mcp-fs` `agents-md` `skill-md` `conv`
 
 ---
 

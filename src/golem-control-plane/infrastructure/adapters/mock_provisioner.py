@@ -36,7 +36,7 @@ class MockProvisioner(Provisioner):
 
     def create_sandbox(self, spec: AgentSpec) -> SandboxHandle:
         """Return a RUNNING handle immediately — no K8s resources created."""
-        handle: SandboxHandle = SandboxHandle(ttl_seconds=spec.ttl_seconds)
+        handle: SandboxHandle = SandboxHandle(agent_id=spec.agent_id, ttl_seconds=spec.ttl_seconds)
         handle.status = SandboxStatus.RUNNING
         logger.info(f"MockProvisioner: sandbox '{handle.agent_id}' created (status=RUNNING)")
         return handle

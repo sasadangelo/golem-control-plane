@@ -42,7 +42,7 @@ class KubernetesProvisioner(Provisioner):
 
     def create_sandbox(self, spec: AgentSpec) -> SandboxHandle:
         """Create Namespace, ResourceQuota, NetworkPolicy, ConfigMap, Pod and Service for the agent."""
-        handle = SandboxHandle(ttl_seconds=spec.ttl_seconds)
+        handle = SandboxHandle(agent_id=spec.agent_id, ttl_seconds=spec.ttl_seconds)
         logger.info(f"Creating sandbox '{handle.agent_id}' (ttl={spec.ttl_seconds}s)")
 
         self._create_namespace(handle, spec)
@@ -94,8 +94,16 @@ class KubernetesProvisioner(Provisioner):
                 annotations={"golem.io/ttl-seconds": str(spec.ttl_seconds)},
             )
         )
-        self._core.create_namespace(ns)
-        logger.debug(f"Namespace '{handle.namespace}' created")
+        try:
+            self._core.create_namespace(ns)
+            logger.debug(f"Namespace '{handle.namespace}' created")
+        except ApiException as e:
+            if e.status == 409:
+                # Namespace already exists (pre-created by deploy.sh) — update labels/annotations.
+                self._core.patch_namespace(handle.namespace, ns)
+                logger.debug(f"Namespace '{handle.namespace}' already exists — patched")
+            else:
+                raise
 
     def _apply_resource_quota(self, handle: SandboxHandle) -> None:
         quota = client.V1ResourceQuota(
@@ -104,8 +112,15 @@ class KubernetesProvisioner(Provisioner):
                 hard={"requests.cpu": "500m", "requests.memory": "512Mi", "limits.cpu": "1", "limits.memory": "1Gi"}
             ),
         )
-        self._core.create_namespaced_resource_quota(handle.namespace, quota)
-        logger.debug(f"ResourceQuota applied to namespace '{handle.namespace}'")
+        try:
+            self._core.create_namespaced_resource_quota(handle.namespace, quota)
+            logger.debug(f"ResourceQuota applied to namespace '{handle.namespace}'")
+        except ApiException as e:
+            if e.status == 409:
+                self._core.patch_namespaced_resource_quota("golem-quota", handle.namespace, quota)
+                logger.debug(f"ResourceQuota already exists in '{handle.namespace}' — patched")
+            else:
+                raise
 
     def _apply_network_policy(self, handle: SandboxHandle) -> None:
         # Allow all egress — MCP servers may run on arbitrary ports.
@@ -118,8 +133,15 @@ class KubernetesProvisioner(Provisioner):
                 egress=[client.V1NetworkPolicyEgressRule()],
             ),
         )
-        self._networking.create_namespaced_network_policy(handle.namespace, policy)
-        logger.debug(f"NetworkPolicy applied to namespace '{handle.namespace}'")
+        try:
+            self._networking.create_namespaced_network_policy(handle.namespace, policy)
+            logger.debug(f"NetworkPolicy applied to namespace '{handle.namespace}'")
+        except ApiException as e:
+            if e.status == 409:
+                self._networking.patch_namespaced_network_policy("default-deny-egress", handle.namespace, policy)
+                logger.debug(f"NetworkPolicy already exists in '{handle.namespace}' — patched")
+            else:
+                raise
 
     def _create_runner_configmap(self, handle: SandboxHandle, spec: AgentSpec) -> None:
         """Create a ConfigMap in the agent namespace with runner config, AGENTS.md, and skill files.
@@ -141,14 +163,27 @@ class KubernetesProvisioner(Provisioner):
             metadata=client.V1ObjectMeta(name="runner-config", namespace=handle.namespace),
             data=data,
         )
-        self._core.create_namespaced_config_map(handle.namespace, cm)
-        logger.debug(f"ConfigMap 'runner-config' created in namespace '{handle.namespace}'")
+        try:
+            self._core.create_namespaced_config_map(handle.namespace, cm)
+            logger.debug(f"ConfigMap 'runner-config' created in namespace '{handle.namespace}'")
+        except ApiException as e:
+            if e.status == 409:
+                self._core.patch_namespaced_config_map("runner-config", handle.namespace, cm)
+                logger.debug(f"ConfigMap 'runner-config' already exists in '{handle.namespace}' — patched")
+            else:
+                raise
 
     def _create_pod(self, handle: SandboxHandle, spec: AgentSpec) -> None:
         # WATSONX_API_KEY is the only secret — passed as env var, not in config.yaml.
         env_vars = [
             client.V1EnvVar(name="WATSONX_API_KEY", value=settings.llm.api_key),
         ]
+
+        # envFrom: mount secrets listed in spec.env_secrets as environment variables.
+        # Each secret must already exist in the agent namespace (created by deploy.sh).
+        env_from = [
+            client.V1EnvFromSource(secret_ref=client.V1SecretEnvSource(name=name)) for name in spec.env_secrets
+        ] or None
 
         # Runner app-dir is /app/src/golem-runner — all files must be mounted there.
         _APP_DIR = "/app/src/golem-runner"
@@ -200,15 +235,22 @@ class KubernetesProvisioner(Provisioner):
                         image_pull_policy="IfNotPresent",
                         ports=[client.V1ContainerPort(container_port=8000)],
                         env=env_vars,
+                        env_from=env_from,
                         resources=client.V1ResourceRequirements(
                             requests={"cpu": "250m", "memory": "256Mi"},
                             limits={"cpu": "1", "memory": "1Gi"},
                         ),
                         volume_mounts=volume_mounts,
+                        startup_probe=client.V1Probe(
+                            http_get=client.V1HTTPGetAction(path="/health", port=8000),
+                            failure_threshold=12,
+                            period_seconds=10,
+                        ),
                         liveness_probe=client.V1Probe(
                             http_get=client.V1HTTPGetAction(path="/health", port=8000),
-                            initial_delay_seconds=15,
+                            initial_delay_seconds=0,
                             period_seconds=10,
+                            failure_threshold=3,
                         ),
                     )
                 ],
@@ -220,8 +262,14 @@ class KubernetesProvisioner(Provisioner):
                 ],
             ),
         )
-        self._core.create_namespaced_pod(handle.namespace, pod)
-        logger.debug(f"Pod '{handle.pod_name}' created in namespace '{handle.namespace}'")
+        try:
+            self._core.create_namespaced_pod(handle.namespace, pod)
+            logger.debug(f"Pod '{handle.pod_name}' created in namespace '{handle.namespace}'")
+        except ApiException as e:
+            if e.status == 409:
+                logger.debug(f"Pod '{handle.pod_name}' already exists in '{handle.namespace}' — skipped")
+            else:
+                raise
 
     def _create_service(self, handle: SandboxHandle) -> None:
         """Create a ClusterIP Service so the pod is reachable by DNS within the cluster."""
@@ -233,8 +281,15 @@ class KubernetesProvisioner(Provisioner):
                 type="ClusterIP",
             ),
         )
-        self._core.create_namespaced_service(handle.namespace, svc)
-        logger.debug(f"Service '{handle.pod_name}' created in namespace '{handle.namespace}'")
+        try:
+            self._core.create_namespaced_service(handle.namespace, svc)
+            logger.debug(f"Service '{handle.pod_name}' created in namespace '{handle.namespace}'")
+        except ApiException as e:
+            if e.status == 409:
+                self._core.patch_namespaced_service(handle.pod_name, handle.namespace, svc)
+                logger.debug(f"Service '{handle.pod_name}' already exists in '{handle.namespace}' — patched")
+            else:
+                raise
 
     def wait_for_running(self, handle: SandboxHandle, timeout: int = 120) -> SandboxHandle:
         """Block until the pod is Running or timeout expires."""
