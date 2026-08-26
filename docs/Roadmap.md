@@ -372,6 +372,92 @@ golem agent create --config config.yaml --mode shared     # shared — one pod, 
 
 ---
 
+#### 2.11 — Project Model: Claude Code-style user workspaces
+
+A **Project** is a named workspace owned by a user that groups together agent configuration, skills, and conversations. It builds on multi-tenancy (§2.7) and multi-conversation support (Week 5) and gives users a Claude Code-style interface: one agent, scoped settings, persistent context.
+
+**Domain model:**
+
+| Entity | Owned by | Contains |
+|---|---|---|
+| **User** | Platform | One or more Projects |
+| **Project** | User | `AGENTS.md`, zero or more `SKILL.md` files, one or more Conversations |
+| **Conversation** | Project | Message history, `conversation_id` |
+
+The user connects to a **named agent** (shared or stateful sandbox) and creates Projects on top of it. Each Project brings its own `AGENTS.md` + skills, so the same underlying agent pod can serve different personas for different Projects.
+
+**Lifecycle:**
+
+```
+POST /projects                      # create project (name, agent_id)
+POST /projects/{id}/agents-md       # upload AGENTS.md for this project
+POST /projects/{id}/skills          # upload one or more SKILL.md files
+GET  /projects/{id}/conversations   # list conversations in this project
+POST /projects/{id}/conversations   # start a new conversation
+WS   /chat/{agent_id}?project_id=<id>&conversation_id=<uuid>  # chat scoped to project
+```
+
+**CLI commands:**
+
+```bash
+golem project create  --name "my-app" --agent <agent_id>
+golem project list
+golem project delete  <project_id>
+golem project upload  --project <id> --agents-md AGENTS.md
+golem project upload  --project <id> --skill read-logs.md
+golem project conv list   --project <id>
+golem project conv new    --project <id> [--name <label>]
+golem project conv switch --project <id> <conv_id>
+```
+
+| Item | Repository | Description |
+|---|---|---|
+| **Project domain model** | `golem-control-plane` | `Project` entity: `id`, `name`, `owner_id`, `agent_id`, `created_at`; stored in PostgreSQL (or in-memory map for dev) |
+| **Project CRUD API** | `golem-control-plane` | `POST/GET/DELETE /projects`; `POST /projects/{id}/agents-md`; `POST /projects/{id}/skills` — files stored as ConfigMaps scoped to `(project_id)`; scoped RBAC: owner can only see their own projects |
+| **Project-scoped conversation routing** | `golem-control-plane` + `golem-runner` | `WS /chat/{agent_id}?project_id=<id>&conversation_id=<uuid>`; Runner selects `AGENTS.md` + skills for the active project before each turn |
+| **CLI: `golem project *`** | `golem-cli` | Full project and project-conversation management commands (see above) |
+
+> **Prerequisite:** §2.7 multi-tenancy must be in place so that `owner_id` is a meaningful identity. Week 5 multi-conversation support is also required.
+
+> **Relation to §2.10 shared mode:** the typical deployment pattern is a `mode: shared` agent pod serving as the backend for multiple users, each operating in their own Projects. A `mode: stateful` pod can equally serve as a personal long-lived agent with Projects providing per-task context isolation.
+
+---
+
+#### 2.12 — CLI reasoning progress: show / hide LLM thinking traces
+
+Modern LLMs expose intermediate reasoning steps (chain-of-thought, thinking tokens). Surfacing or suppressing these in the terminal significantly improves the user experience for both debugging and production use.
+
+| Mode | Behaviour | Use case |
+|---|---|---|
+| **`verbose`** (default in dev) | Reasoning steps streamed as collapsible blocks in the terminal | Debugging, skill authoring |
+| **`quiet`** (default in prod) | Only the final answer is printed; reasoning is suppressed | End-user facing demos, CI |
+| **`compact`** | Reasoning printed as a single dim summary line, not streamed | Balanced: aware but not noisy |
+
+**Implementation approach:**
+
+- The Runner emits a new SSE event type `event: reasoning` carrying each thinking token/step separately from `event: token` (the final-answer stream).
+- The CLI reads a `--reasoning {verbose,quiet,compact}` flag (or `GOLEM_REASONING` env var) and filters / formats `reasoning` events accordingly.
+- When the LLM backend does not emit reasoning tokens the flag is silently ignored — no error.
+
+**CLI flags:**
+
+```bash
+golem chat --id <agent_id> --reasoning verbose    # show full thinking trace
+golem chat --id <agent_id> --reasoning quiet      # final answer only (default)
+golem chat --id <agent_id> --reasoning compact    # one-line dim summary
+```
+
+| Item | Repository | Description |
+|---|---|---|
+| **Runner: `reasoning` SSE event** | `golem-runner` | Emit `event: reasoning` / `data: <step>` for each thinking token; final answer continues as `event: token`; no change to existing clients (they ignore unknown event types) |
+| **CLI: `--reasoning` flag** | `golem-cli` | `golem chat` accepts `--reasoning {verbose,quiet,compact}`; fallback to `GOLEM_REASONING` env var; default `quiet` |
+| **CLI renderer — verbose** | `golem-cli` | Reasoning blocks streamed inside a dim, collapsible terminal block (e.g. `▶ Thinking…` prefix, dimmed colour) |
+| **CLI renderer — compact** | `golem-cli` | Buffer all reasoning tokens; print a single dim one-liner on completion before the answer |
+
+> **LLM dependency:** reasoning token emission requires the underlying model to support chain-of-thought output (e.g. WatsonX Granite Instruct, Ollama with `think` flag, OpenAI o-series). For models that do not expose reasoning, the `reasoning` event is never emitted and the flag has no visible effect.
+
+---
+
 ### Phase 3 — Ecosystem Expansion
 
 | Item | Repository | Description |
