@@ -51,8 +51,6 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 - [x] CLI: `golem agent task send --agent <id> --message "..."` — submit a one-shot A2A task from the terminal
 - [x] CLI commands: `golem agent create`, `golem agent list`, `golem agent delete`, `golem agent status`, `golem agent config`
 - [x] CLI commands: `golem cp add`, `golem cp use`, `golem cp list`, `golem cp remove`, `golem cp status` — multi-context control plane management
-- [ ] **`[new]`** A2A `SendMessage` delegation between agents (e.g. `Log-Analyzer` → `Report-Writer`)
-- [ ] **`[new]`** Signed Agent Card validation in the Card Registry
 - [ ] Multi-conversation support: `WS /chat/{agent_id}?conversation_id=<uuid>` — each conversation isolated
 - [ ] Conversation state keyed by `(agent_id, conversation_id)` in-memory
 - [ ] CLI conversation management:
@@ -60,9 +58,8 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
   - `golem conv new --agent <id> [--name <label>]` — start a new conversation
   - `golem conv switch --agent <id> <conv_id>` — resume an existing conversation
   - `golem conv delete --agent <id> <conv_id>` — delete a conversation
-- [ ] Message history stored in PostgreSQL (optional — only if time permits; in-memory covers MVP)
-- [ ] Agent state persistence in Redis (deferred — real value comes with LangGraph checkpointer in Phase 2)
-- [ ] **`[new]`** Conversation history is unbounded in-memory — **known debt**: no cap, no summary; context window overflow is silently truncated by the framework; full rolling-summary strategy deferred to Phase 2 §2.2
+- [ ] **`[new]`** A2A `SendMessage` delegation between agents (e.g. `Log-Analyzer` → `Report-Writer`)
+- [ ] **`[new]`** Signed Agent Card validation in the Card Registry
 
 **Deliverable:** a multi-agent flow works end-to-end; full conversation management from CLI; platform deployable on any K8s cluster via Helm.
 
@@ -84,7 +81,7 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 | CLI — `agent create/list/delete/status/config/card` | — | — | — | — | ✅ |
 | CLI — `agent tasks` / `agent task send` | — | — | — | — | ✅ |
 | Multi-conversation + `golem conv *` CLI | — | — | — | — | [ ] |
-| Persistence (PostgreSQL + Redis) *(optional)* | — | — | — | — | ✅ |
+| Persistence (PostgreSQL + Redis) | — | — | — | — | *deferred → §2.2* |
 
 ---
 
@@ -146,8 +143,8 @@ Items are listed in **priority order** — each one makes the platform observabl
 | Item | Repository | Description |
 |---|---|---|
 | **LangGraph checkpointer on Redis** | `golem-framework` | Persist graph state at every step to Redis; survive pod restarts, TTL expiry, and human-in-the-loop pauses without losing the conversation |
-| Agent state + message history in Redis | `golem-control-plane` | Control Plane persists known sandboxes and chat history to Redis; survives Control Plane restarts |
-| **Conversation rolling summary** | `golem-framework` | When a conversation exceeds a configurable threshold (token count or message count), a LangGraph summary node calls the LLM to produce a condensed summary, replaces older messages with a single `SystemMessage("Summary: …")`, and persists the result to Redis — prevents context window overflow and unbounded memory growth. Requires Redis persistence above. |
+| Agent state + message history in Redis | `golem-control-plane` | Control Plane persists known sandboxes and chat history to Redis; survives Control Plane restarts. *Moved from MVP Week 5 — in-memory covers MVP; PostgreSQL persistence deferred here.* |
+| **Conversation rolling summary** | `golem-framework` | When a conversation exceeds a configurable threshold (token count or message count), a LangGraph summary node calls the LLM to produce a condensed summary, replaces older messages with a single `SystemMessage("Summary: …")`, and persists the result to Redis — prevents context window overflow and unbounded memory growth. Requires Redis persistence above. *Moved from MVP Week 5 — conversation history is currently unbounded in-memory (known debt: no cap, no summary; context window overflow is silently truncated by the framework).* |
 
 #### 2.3 — Multi-provider: choose the model per agent
 
