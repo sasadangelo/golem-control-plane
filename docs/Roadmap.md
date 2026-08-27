@@ -46,13 +46,11 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 
 **Goal:** Background tasks, agent cooperation, polished CLI, multi-conversation support, and optional durable persistence.
 
-- [ ] Background tasks in Agent Runner: Cron, Timer, Webhook triggers
+- [x] Background tasks in Agent Runner: Cron, Timer, Webhook triggers
+- [x] CLI: `golem agent tasks --agent <id>` — show A2A task lifecycle
+- [x] CLI: `golem agent task send --agent <id> --message "..."` — submit a one-shot A2A task from the terminal
 - [x] CLI commands: `golem agent create`, `golem agent list`, `golem agent delete`, `golem agent status`, `golem agent config`
 - [x] CLI commands: `golem cp add`, `golem cp use`, `golem cp list`, `golem cp remove`, `golem cp status` — multi-context control plane management
-- [ ] CLI: `golem agent tasks --agent <id>` — show A2A task lifecycle
-- [ ] Docker Hub image build & publish for Control Plane (`sasadangelo/golem-control-plane:<tag>`)
-- [ ] Docker Hub image build & publish for Agent Runner (`sasadangelo/golem-runner:<tag>`)
-- [ ] Helm Chart for Control Plane deployment
 - [ ] **`[new]`** A2A `SendMessage` delegation between agents (e.g. `Log-Analyzer` → `Report-Writer`)
 - [ ] **`[new]`** Signed Agent Card validation in the Card Registry
 - [ ] Multi-conversation support: `WS /chat/{agent_id}?conversation_id=<uuid>` — each conversation isolated
@@ -74,7 +72,7 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 
 | Component | W1 | W2 | W3 | W4 | W5 |
 |---|:---:|:---:|:---:|:---:|:---:|
-| Agent Runner (Docker + LangGraph) | ✅ | — | — | AGENTS.md + SKILL.md + MCP | Cron |
+| Agent Runner (Docker + LangGraph) | ✅ | — | — | AGENTS.md + SKILL.md + MCP | ✅ Cron/Timer/Webhook |
 | A2A Agent Card + inbound tasks **`[new]`** | ✅ | — | ✅ Broker | — | SendMsg |
 | Control Plane (FastAPI) | — | ✅ | Chat WS | file upload + ConfigMap | Helm |
 | K8s Provisioner (Python k8s-client) | — | ✅ | — | — | — |
@@ -84,7 +82,7 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 | CLI — `golem chat` | — | — | ✅ | — | — |
 | CLI — `cp *` (multi-context control plane) | — | — | — | — | ✅ |
 | CLI — `agent create/list/delete/status/config/card` | — | — | — | — | ✅ |
-| CLI — `agent tasks` | — | — | — | — | [ ] |
+| CLI — `agent tasks` / `agent task send` | — | — | — | — | ✅ |
 | Multi-conversation + `golem conv *` CLI | — | — | — | — | [ ] |
 | Persistence (PostgreSQL + Redis) *(optional)* | — | — | — | — | ✅ |
 

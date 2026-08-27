@@ -54,7 +54,7 @@ class SandboxHandle(BaseModel):
     ttl_seconds: int = 3600
     agent_card: dict | None = None
 
-    def model_post_init(self, __context: object) -> None:
+    def model_post_init(self, __context: object, /) -> None:
         if not self.namespace:
             self.namespace = self.agent_id
         if not self.pod_name:
@@ -79,6 +79,10 @@ class A2ATask(BaseModel):
     task_id: str = Field(default_factory=lambda: f"task-{uuid.uuid4().hex[:12]}")
     agent_id: str
     status: TaskStatus = TaskStatus.SUBMITTED
+    source: str = Field(
+        default="manual",
+        description="Origin of the task: 'golem-cli', 'timer', 'cron', 'webhook', or 'a2a'.",
+    )
     message: str = Field(default="", description="The input message / instruction for this task.")
     result: str | None = Field(default=None, description="Output produced by the agent when the task completes.")
     created_at: datetime = Field(default_factory=lambda: datetime.now(tz=UTC))

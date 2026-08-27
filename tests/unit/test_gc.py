@@ -27,7 +27,7 @@ def test_gc_deletes_expired_sandbox() -> None:
     ):
         sys.modules.pop(mod, None)
 
-    import infrastructure.adapters.k8s_provisioner as k8s_mod  # noqa: PLC0415
+    import infrastructure.adapters.k8s_provisioner as k8s_mod
 
     with patch.object(k8s_mod, "_load_k8s_config"):
         import interfaces.api.app as cp
@@ -56,7 +56,7 @@ def test_gc_deletes_expired_sandbox() -> None:
             for aid in expired:
                 h = cp._sandboxes[aid]
                 cp.provisioner.delete_sandbox(h)
-                import infrastructure.adapters.card_registry as card_registry  # noqa: PLC0415
+                from infrastructure.adapters import card_registry
 
                 card_registry.deregister(aid)
                 cp._sandboxes.pop(aid, None)
@@ -86,7 +86,7 @@ def test_gc_keeps_non_expired_sandbox() -> None:
     ):
         sys.modules.pop(mod, None)
 
-    import infrastructure.adapters.k8s_provisioner as k8s_mod  # noqa: PLC0415
+    import infrastructure.adapters.k8s_provisioner as k8s_mod
 
     with patch.object(k8s_mod, "_load_k8s_config"):
         import interfaces.api.app as cp

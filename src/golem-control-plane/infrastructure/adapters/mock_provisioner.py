@@ -71,7 +71,7 @@ class MockProvisioner(Provisioner):
             response.raise_for_status()
             handle.agent_card = response.json()
             logger.info(f"MockProvisioner: Agent Card fetched for '{handle.agent_id}' from {card_url}")
-        except Exception as e:
+        except (OSError, ValueError, httpx.HTTPError) as e:
             logger.warning(f"MockProvisioner: could not fetch Agent Card from {card_url}: {e}")
 
         return handle

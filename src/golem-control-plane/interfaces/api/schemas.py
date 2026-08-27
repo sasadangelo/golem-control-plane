@@ -26,6 +26,7 @@ class SubmitTaskRequest(BaseModel):
     """Request body for POST /agents/{agent_id}/tasks."""
 
     message: str
+    source: str = "manual"
 
 
 class UpdateTaskRequest(BaseModel):
@@ -41,6 +42,7 @@ class TaskResponse(BaseModel):
     task_id: str
     agent_id: str
     status: str
+    source: str = "manual"
     message: str
     result: str | None = None
     created_at: datetime

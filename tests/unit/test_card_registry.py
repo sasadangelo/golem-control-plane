@@ -17,8 +17,8 @@ def _fresh_registry() -> None:
 
 def test_register_and_get_card() -> None:
     """fetch_and_register (via direct store) and get_card must round-trip."""
-    import infrastructure.adapters.card_registry as card_registry
     from domain.models import SandboxHandle
+    from infrastructure.adapters import card_registry
 
     handle = SandboxHandle(agent_id="golem-agent-001")
     card = {"id": "golem-agent-001", "name": "Test Agent", "skills": []}
@@ -31,14 +31,14 @@ def test_register_and_get_card() -> None:
 
 def test_get_card_missing_returns_none() -> None:
     """get_card must return None for an unknown agent_id."""
-    import infrastructure.adapters.card_registry as card_registry
+    from infrastructure.adapters import card_registry
 
     assert card_registry.get_card("does-not-exist") is None
 
 
 def test_deregister_removes_card() -> None:
     """deregister must remove the card from the registry."""
-    import infrastructure.adapters.card_registry as card_registry
+    from infrastructure.adapters import card_registry
 
     card_registry._registry["golem-agent-002"] = {"id": "golem-agent-002"}
     card_registry.deregister("golem-agent-002")
@@ -47,7 +47,7 @@ def test_deregister_removes_card() -> None:
 
 def test_list_cards_returns_all() -> None:
     """list_cards must return all registered cards."""
-    import infrastructure.adapters.card_registry as card_registry
+    from infrastructure.adapters import card_registry
 
     card_registry._registry["golem-agent-003"] = {"id": "golem-agent-003"}
     card_registry._registry["golem-agent-004"] = {"id": "golem-agent-004"}
@@ -60,8 +60,9 @@ def test_list_cards_returns_all() -> None:
 def test_fetch_and_register_on_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """fetch_and_register must return None gracefully on HTTP error."""
     import httpx
-    import infrastructure.adapters.card_registry as card_registry
+
     from domain.models import SandboxHandle
+    from infrastructure.adapters import card_registry
 
     monkeypatch.setattr(httpx, "get", lambda *a, **kw: (_ for _ in ()).throw(httpx.ConnectError("refused")))
     handle = SandboxHandle(agent_id="golem-agent-005")

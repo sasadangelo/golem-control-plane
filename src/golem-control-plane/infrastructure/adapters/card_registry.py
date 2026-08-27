@@ -50,7 +50,7 @@ def fetch_and_register(handle: SandboxHandle) -> dict[str, Any] | None:
         handle.agent_card = card
         logger.info(f"Agent Card registered for agent '{handle.agent_id}'")
         return card
-    except Exception as e:
+    except (OSError, ValueError, httpx.HTTPError) as e:
         logger.warning(f"Could not fetch Agent Card for agent '{handle.agent_id}': {e}")
         return None
 

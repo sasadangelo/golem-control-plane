@@ -5,9 +5,8 @@
 """Golem Control Plane — FastAPI application."""
 
 import asyncio
+import re
 import time
-
-import yaml
 from _asyncio import Task
 from asyncio.events import AbstractEventLoop
 from collections.abc import AsyncGenerator
@@ -15,8 +14,10 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 import websockets
 import websockets.exceptions
+import yaml
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 
 from core.config import settings
@@ -264,7 +265,7 @@ async def list_agents() -> list[AgentStatusResponse]:
     async def _refresh(agent_id: str, handle: SandboxHandle) -> SandboxHandle:
         try:
             handle = await loop.run_in_executor(None, provisioner.get_status, handle)
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             logger.warning(f"Could not refresh status for agent {agent_id}: {e}")
         else:
             _sandboxes[agent_id] = handle
@@ -335,12 +336,10 @@ async def chat_proxy(websocket: WebSocket, agent_id: str) -> None:
     """
     handle: SandboxHandle | None = _sandboxes.get(agent_id)
     if not handle:
-        await websocket.accept()
         await websocket.close(code=4404, reason=f"Agent {agent_id} not found.")
         return
 
     if handle.status != SandboxStatus.RUNNING:
-        await websocket.accept()
         await websocket.close(code=4503, reason=f"Agent {agent_id} is not running (status={handle.status}).")
         return
 
@@ -392,30 +391,66 @@ async def submit_task(agent_id: str, body: SubmitTaskRequest) -> TaskResponse:
     """
     Submit a new A2A task to an agent sandbox.
 
-    Creates a task record in ``submitted`` state and returns it immediately.
-    The runner is responsible for transitioning the task to ``working``,
-    then ``completed`` or ``failed`` via PATCH.
+    Proxies to ``POST /a2a/tasks/send`` on the runner pod so the task is
+    actually executed.  Returns the task record created by the runner.
 
     Args:
         agent_id: The target agent sandbox identifier.
         body: The task submission payload containing the instruction message.
     """
-    if agent_id not in _sandboxes:
+    handle = _sandboxes.get(agent_id)
+    if not handle:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found.")
 
-    task: A2ATask = A2ATask(agent_id=agent_id, message=body.message)
-    _tasks[task.task_id] = task
-    logger.info(f"Task {task.task_id} submitted to agent {agent_id}")
+    base = _runner_http_url(handle)
+    payload = {
+        "message": {"role": "user", "parts": [{"type": "text", "text": body.message}]},
+        "source": body.source,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(f"{base}/a2a/tasks/send", json=payload)
+            resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Runner unreachable: {exc}") from exc
 
+    data = resp.json()
+    task_id: str = data["id"]
+    logger.info(f"Task {task_id} submitted to agent {agent_id} via runner")
+
+    # Fetch the full task record from the runner so we can return a TaskResponse.
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            tr = await client.get(f"{base}/a2a/tasks/{task_id}")
+            tr.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Runner unreachable: {exc}") from exc
+
+    t = tr.json()
     return TaskResponse(
-        task_id=task.task_id,
-        agent_id=task.agent_id,
-        status=task.status,
-        message=task.message,
-        result=task.result,
-        created_at=task.created_at,
-        updated_at=task.updated_at,
+        task_id=t["task_id"],
+        agent_id=agent_id,
+        status=t["status"],
+        source=t.get("source", body.source),
+        message=t["message"],
+        result=t.get("result"),
+        created_at=t["created_at"],
+        updated_at=t["updated_at"],
     )
+
+
+def _runner_http_url(handle: SandboxHandle) -> str:
+    """Return the base HTTP URL for the runner pod.
+
+    Uses ``settings.test.runner_url`` when set (smoke tests without K8s).
+    Falls back to in-cluster DNS.
+    """
+    if settings.test.runner_url:
+        base = settings.test.runner_url
+        base = re.sub(r"^ws", "http", base)
+        base = base.rstrip("/").removesuffix("/ws/chat")
+        return base
+    return f"http://{handle.pod_name}.{handle.namespace}.svc.cluster.local:8000"
 
 
 @app.get(path="/agents/{agent_id}/tasks", response_model=list[TaskResponse])
@@ -423,24 +458,36 @@ async def list_tasks(agent_id: str) -> list[TaskResponse]:
     """
     List all A2A tasks for a given agent sandbox.
 
+    Proxies to GET /a2a/tasks on the runner pod so that tasks created by
+    background triggers are visible alongside tasks submitted via the CLI.
+
     Args:
         agent_id: The agent sandbox identifier.
     """
-    if agent_id not in _sandboxes:
+    handle = _sandboxes.get(agent_id)
+    if not handle:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found.")
+
+    base = _runner_http_url(handle)
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(f"{base}/a2a/tasks")
+            resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Runner unreachable: {exc}") from exc
 
     return [
         TaskResponse(
-            task_id=t.task_id,
-            agent_id=t.agent_id,
-            status=t.status,
-            message=t.message,
-            result=t.result,
-            created_at=t.created_at,
-            updated_at=t.updated_at,
+            task_id=t["task_id"],
+            agent_id=agent_id,
+            status=t["status"],
+            source=t.get("source", "manual"),
+            message=t["message"],
+            result=t.get("result"),
+            created_at=t["created_at"],
+            updated_at=t["updated_at"],
         )
-        for t in _tasks.values()
-        if t.agent_id == agent_id
+        for t in resp.json()
     ]
 
 
@@ -449,25 +496,38 @@ async def get_task(agent_id: str, task_id: str) -> TaskResponse:
     """
     Return the current state of a single A2A task.
 
+    Proxies to GET /a2a/tasks/{task_id} on the runner pod.
+
     Args:
         agent_id: The agent sandbox identifier.
         task_id: The task identifier.
     """
-    if agent_id not in _sandboxes:
+    handle = _sandboxes.get(agent_id)
+    if not handle:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found.")
 
-    task: A2ATask | None = _tasks.get(task_id)
-    if not task or task.agent_id != agent_id:
-        raise HTTPException(status_code=404, detail=f"Task {task_id} not found for agent {agent_id}.")
+    base = _runner_http_url(handle)
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(f"{base}/a2a/tasks/{task_id}")
+            if resp.status_code == 404:
+                raise HTTPException(status_code=404, detail=f"Task {task_id} not found for agent {agent_id}.")
+            resp.raise_for_status()
+    except HTTPException:
+        raise
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Runner unreachable: {exc}") from exc
 
+    t = resp.json()
     return TaskResponse(
-        task_id=task.task_id,
-        agent_id=task.agent_id,
-        status=task.status,
-        message=task.message,
-        result=task.result,
-        created_at=task.created_at,
-        updated_at=task.updated_at,
+        task_id=t["task_id"],
+        agent_id=agent_id,
+        status=t["status"],
+        source=t.get("source", "manual"),
+        message=t["message"],
+        result=t.get("result"),
+        created_at=t["created_at"],
+        updated_at=t["updated_at"],
     )
 
 
@@ -506,6 +566,7 @@ async def update_task(agent_id: str, task_id: str, body: UpdateTaskRequest) -> T
         task_id=task.task_id,
         agent_id=task.agent_id,
         status=task.status,
+        source=task.source,
         message=task.message,
         result=task.result,
         created_at=task.created_at,
