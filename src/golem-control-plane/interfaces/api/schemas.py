@@ -58,6 +58,24 @@ class HandshakeRequest(BaseModel):
     """
 
     card: dict
+    signature: str | None = None  # placeholder — validated in Phase 2
+
+
+class DelegateTaskRequest(BaseModel):
+    """Request body for POST /agents/{source_id}/delegate."""
+
+    target_agent_id: str
+    message: str
+    source: str = "a2a"
+
+
+class DelegateTaskResponse(BaseModel):
+    """Response body for POST /agents/{source_id}/delegate."""
+
+    task_id: str
+    source_agent_id: str
+    target_agent_id: str
+    status: str
 
 
 class HandshakeResponse(BaseModel):

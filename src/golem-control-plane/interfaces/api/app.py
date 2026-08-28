@@ -31,6 +31,8 @@ from interfaces.api.schemas import (
     ConversationResponse,
     CreateAgentResponse,
     CreateConversationRequest,
+    DelegateTaskRequest,
+    DelegateTaskResponse,
     HandshakeRequest,
     HandshakeResponse,
     SubmitTaskRequest,
@@ -513,13 +515,15 @@ async def chat_proxy(websocket: WebSocket, agent_id: str, conversation_id: str |
 # ---------------------------------------------------------------------------
 
 
-@app.post(path="/agents/{agent_id}/tasks", response_model=TaskResponse, status_code=201)
+@app.post(path="/agents/{agent_id}/tasks", response_model=TaskResponse, status_code=202)
 async def submit_task(agent_id: str, body: SubmitTaskRequest) -> TaskResponse:
     """
-    Submit a new A2A task to an agent sandbox.
+    Submit a new A2A task to an agent sandbox (fire-and-forget).
 
-    Proxies to ``POST /a2a/tasks/send`` on the runner pod so the task is
-    actually executed.  Returns the task record created by the runner.
+    Proxies to ``POST /a2a/tasks/send`` on the runner pod.  The runner
+    executes the task asynchronously and returns immediately with
+    ``status=submitted``.  Poll ``GET /agents/{agent_id}/tasks/{task_id}``
+    to retrieve the result.
 
     Args:
         agent_id: The target agent sandbox identifier.
@@ -535,7 +539,7 @@ async def submit_task(agent_id: str, body: SubmitTaskRequest) -> TaskResponse:
         "source": body.source,
     }
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(f"{base}/a2a/tasks/send", json=payload)
             resp.raise_for_status()
     except httpx.HTTPError as exc:
@@ -543,26 +547,18 @@ async def submit_task(agent_id: str, body: SubmitTaskRequest) -> TaskResponse:
 
     data = resp.json()
     task_id: str = data["id"]
-    logger.info(f"Task {task_id} submitted to agent {agent_id} via runner")
+    now = datetime.utcnow().isoformat()
+    logger.info(f"Task {task_id} submitted to agent {agent_id} (fire-and-forget)")
 
-    # Fetch the full task record from the runner so we can return a TaskResponse.
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            tr = await client.get(f"{base}/a2a/tasks/{task_id}")
-            tr.raise_for_status()
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Runner unreachable: {exc}") from exc
-
-    t = tr.json()
     return TaskResponse(
-        task_id=t["task_id"],
+        task_id=task_id,
         agent_id=agent_id,
-        status=t["status"],
-        source=t.get("source", body.source),
-        message=t["message"],
-        result=t.get("result"),
-        created_at=t["created_at"],
-        updated_at=t["updated_at"],
+        status="submitted",
+        source=body.source,
+        message=body.message,
+        result=None,
+        created_at=now,
+        updated_at=now,
     )
 
 
@@ -698,6 +694,57 @@ async def update_task(agent_id: str, task_id: str, body: UpdateTaskRequest) -> T
         result=task.result,
         created_at=task.created_at,
         updated_at=task.updated_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# A2A delegation endpoint
+# ---------------------------------------------------------------------------
+
+
+@app.post(path="/agents/{source_agent_id}/delegate", response_model=DelegateTaskResponse, status_code=201)
+async def delegate_task(source_agent_id: str, body: DelegateTaskRequest) -> DelegateTaskResponse:
+    """Delegate an A2A task from a source agent to a target agent.
+
+    The Control Plane acts as broker: it looks up the target agent's runner
+    URL from the Card Registry and forwards the task via POST /a2a/tasks/send.
+
+    Args:
+        source_agent_id: The agent initiating the delegation.
+        body:            Delegation payload — target agent ID and message.
+
+    Raises:
+        HTTPException 404: source or target agent not found.
+        HTTPException 502: target runner is unreachable.
+    """
+    if source_agent_id not in _sandboxes:
+        raise HTTPException(status_code=404, detail=f"Source agent {source_agent_id} not found.")
+
+    target_handle = _sandboxes.get(body.target_agent_id)
+    if not target_handle:
+        raise HTTPException(status_code=404, detail=f"Target agent {body.target_agent_id} not found.")
+
+    base = _runner_http_url(target_handle)
+    payload = {
+        "message": {"role": "user", "parts": [{"type": "text", "text": body.message}]},
+        "source": body.source,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(f"{base}/a2a/tasks/send", json=payload)
+            resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Target runner unreachable: {exc}") from exc
+
+    data = resp.json()
+    task_id: str = data["id"]
+    logger.info(f"Task {task_id} delegated from {source_agent_id} to {body.target_agent_id}")
+
+    return DelegateTaskResponse(
+        task_id=task_id,
+        source_agent_id=source_agent_id,
+        target_agent_id=body.target_agent_id,
+        status=data.get("status", {}).get("state", "submitted"),
     )
 
 

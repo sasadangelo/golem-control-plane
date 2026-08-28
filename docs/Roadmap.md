@@ -51,15 +51,14 @@ The goal of the MVP is a fully working **Agent-as-a-Service platform** running o
 - [x] CLI: `golem agent task send --agent <id> --message "..."` — submit a one-shot A2A task from the terminal
 - [x] CLI commands: `golem agent create`, `golem agent list`, `golem agent delete`, `golem agent status`, `golem agent config`
 - [x] CLI commands: `golem cp add`, `golem cp use`, `golem cp list`, `golem cp remove`, `golem cp status` — multi-context control plane management
-- [ ] Multi-conversation support: `WS /chat/{agent_id}?conversation_id=<uuid>` — each conversation isolated
-- [ ] Conversation state keyed by `(agent_id, conversation_id)` in-memory
-- [ ] CLI conversation management:
+- [x] Multi-conversation support: `WS /chat/{agent_id}?conversation_id=<uuid>` — each conversation isolated
+- [x] Conversation state keyed by `(agent_id, conversation_id)` in-memory
+- [x] CLI conversation management:
   - `golem conv list --agent <id>` — list conversations for an agent
   - `golem conv new --agent <id> [--name <label>]` — start a new conversation
-  - `golem conv switch --agent <id> <conv_id>` — resume an existing conversation
   - `golem conv delete --agent <id> <conv_id>` — delete a conversation
-- [ ] **`[new]`** A2A `SendMessage` delegation between agents (e.g. `Log-Analyzer` → `Report-Writer`)
-- [ ] **`[new]`** Signed Agent Card validation in the Card Registry
+- [x] **`[new]`** A2A `SendMessage` delegation between agents (Supervisor → Log-Analyzer → Report-Writer)
+- [ ] **`[new]`** Signed Agent Card validation in the Card Registry — *deferred to Phase 2 §2.X*
 
 **Deliverable:** a multi-agent flow works end-to-end; full conversation management from CLI; platform deployable on any K8s cluster via Helm.
 
