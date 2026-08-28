@@ -303,9 +303,45 @@ golem mcp remove --name my-git
 
 #### 2.7 — Multi-tenancy: open to other users
 
+Today the Control Plane has no concept of identity. Any caller who knows an `agent_id` can open conversations on that agent, list its tasks, and delete it. This section introduces the minimal ownership model that makes the platform safe to expose to multiple users.
+
+**Domain model:**
+
+| Entity | Owned by | Contains | Key fields |
+|---|---|---|---|
+| **Account** | Platform | One or more Agents | `account_id`, `email`, `api_key_hash`, `created_at` |
+| **Agent** | Account | One or more Conversations, zero or more Tasks | `agent_id`, `owner_id` (FK → Account), `mode`, `ttl_seconds` |
+| **Conversation** | Agent (implicit: Account) | Message history | `conversation_id`, `agent_id`, `name`, `created_at` |
+
+**Ownership rules:**
+
+- An account can deploy **N agents**; each agent has exactly one `owner_id`.
+- An account can only see and interact with agents it owns — `GET /agents` returns only the caller's agents; cross-account access returns `404 Not Found`.
+- Conversations are scoped to an agent — access control flows automatically: if you cannot reach the agent, you cannot reach its conversations.
+- `mode: shared` agents (§2.10) are an explicit exception: their owner grants wider access, but an owner always exists.
+
+**API key authentication (lightweight — no full OAuth):**
+
+- `POST /accounts` — create account, receive a plain-text API key (stored as bcrypt hash).
+- Every request carries `Authorization: Bearer <api_key>`; the Control Plane resolves `account_id` from the key and enforces ownership on every resource endpoint.
+- No JWT, no OAuth flow, no third-party IdP required at this stage.
+
+**Domain model changes required:**
+
+- `AgentSpec` and `SandboxHandle` gain an `owner_id: str` field.
+- `GET /agents`, `GET /agents/{id}`, `DELETE /agents/{id}`, `WS /chat/{id}`, `GET /agents/{id}/conversations`, etc. — all enforce `handle.owner_id == caller_account_id`.
+- `Conversation` already carries `agent_id`; no structural change needed — ownership is inherited.
+
 | Item | Repository | Description |
 |---|---|---|
-| Multi-tenant RBAC (lightweight) | `golem-control-plane` | Per-user API key scoped to a set of sandbox namespaces; no full OAuth required at this stage |
+| **Account domain model** | `golem-control-plane` | `Account` entity: `account_id`, `email`, `api_key_hash`, `created_at`; stored in-memory map for dev, PostgreSQL for prod |
+| **Account CRUD API** | `golem-control-plane` | `POST /accounts` (create + return plain-text key once); `GET /accounts/me` (resolve caller identity) |
+| **API key middleware** | `golem-control-plane` | FastAPI dependency `get_current_account()` — resolves `Authorization: Bearer <key>` to an `Account`; returns `401` if missing/invalid |
+| **`owner_id` on Agent** | `golem-control-plane` | Add `owner_id: str` to `AgentSpec` and `SandboxHandle`; set from `get_current_account()` at `POST /agents`; enforce on all agent-scoped endpoints |
+| **CLI: `golem account` commands** | `golem-cli` | `golem account create --email <e>` — prints API key once; `golem account whoami` — show active identity; API key stored in `~/.golem/config.yaml` per context |
+
+> **Prerequisite for §2.10 and §2.11:** `mode: shared` and the Project model both require a meaningful `owner_id`. This section must be completed first.
+> **No OAuth at this stage:** a simple API key is sufficient to enforce ownership and unblock dependent milestones. OAuth / SSO can replace it in Phase 3 without changing the domain model.
 
 #### 2.8 — Infrastructure
 
