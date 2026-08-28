@@ -18,17 +18,19 @@ import httpx
 import websockets
 import websockets.exceptions
 import yaml
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 
 from core.config import settings
 from core.log import LoggerManager, setup_logging
-from domain.models import A2ATask, AgentSpec, SandboxHandle, SandboxStatus, TaskStatus
+from domain.models import A2ATask, AgentSpec, Conversation, SandboxHandle, SandboxStatus, TaskStatus
 from domain.ports.provisioner import Provisioner
 from infrastructure.adapters import card_registry
 from infrastructure.adapters.k8s_provisioner import KubernetesProvisioner
 from interfaces.api.schemas import (
     AgentStatusResponse,
+    ConversationResponse,
     CreateAgentResponse,
+    CreateConversationRequest,
     HandshakeRequest,
     HandshakeResponse,
     SubmitTaskRequest,
@@ -55,6 +57,12 @@ _created_at: dict[str, float] = {}
 
 # In-memory A2A task registry {task_id: A2ATask}
 _tasks: dict[str, A2ATask] = {}
+
+# In-memory conversation registry {(agent_id, conversation_id): Conversation}
+_conversations: dict[tuple[str, str], Conversation] = {}
+
+# In-memory active websocket connections registry {(agent_id, conversation_id): [WebSocket]}
+_active_chat_connections: dict[tuple[str, str], list[WebSocket]] = {}
 
 GC_INTERVAL_SECONDS: int = settings.control_plane.gc_interval
 
@@ -322,17 +330,105 @@ async def agent_handshake(agent_id: str, body: HandshakeRequest) -> HandshakeRes
     return HandshakeResponse(registered=True, agent_id=agent_id)
 
 
+def _generate_conversation_title(message: str) -> str:
+    """Generate a clean, professional, short title (2-4 words) from the first message in English."""
+    text = message.strip()
+    if not text:
+        return "New Conversation"
+
+    # Common English stop words / conversational fluff to filter out
+    stopwords = {
+        "hi",
+        "hello",
+        "hey",
+        "please",
+        "could",
+        "you",
+        "would",
+        "write",
+        "create",
+        "make",
+        "show",
+        "tell",
+        "explain",
+        "help",
+        "me",
+        "with",
+        "a",
+        "an",
+        "the",
+        "to",
+        "for",
+        "in",
+        "on",
+        "at",
+        "by",
+        "of",
+        "from",
+        "and",
+        "or",
+        "but",
+        "what",
+        "how",
+        "why",
+        "who",
+        "which",
+        "can",
+        "do",
+        "does",
+        "did",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "have",
+        "has",
+        "had",
+    }
+
+    # Remove punctuation and split into words
+    import re
+
+    words = re.findall(r"\b\w+\b", text.lower())
+
+    # Filter out stopwords
+    filtered_words = [w for w in words if w not in stopwords]
+
+    # If we filtered out too much, fall back to the original words
+    if not filtered_words:
+        filtered_words = words[:5]
+
+    # Take up to 3-4 significant words
+    title_words = filtered_words[:4]
+
+    # Capitalize each word and join
+    title = " ".join(w.capitalize() for w in title_words)
+
+    # If it is too long, truncate nicely
+    if len(title) > 24:
+        title = f"{title[:21]}..."
+
+    return title or "New Conversation"
+
+
 @app.websocket(path="/chat/{agent_id}")
-async def chat_proxy(websocket: WebSocket, agent_id: str) -> None:
+async def chat_proxy(websocket: WebSocket, agent_id: str, conversation_id: str | None = Query(None)) -> None:
     """
     Proxy WebSocket chat sessions between a client and the agent runner pod.
 
     Connects to ``ws://<pod>.<namespace>.svc.cluster.local:8000/ws/chat`` and
     pumps messages bidirectionally until either side closes the connection.
 
+    When ``conversation_id`` is provided the conversation must already exist
+    (created via POST /agents/{agent_id}/conversations).  If it does not exist
+    the connection is rejected with code 4404.
+
     Args:
         websocket: The inbound client WebSocket connection.
         agent_id: The agent sandbox identifier.
+        conversation_id: Optional UUID of an existing conversation.
     """
     handle: SandboxHandle | None = _sandboxes.get(agent_id)
     if not handle:
@@ -343,8 +439,21 @@ async def chat_proxy(websocket: WebSocket, agent_id: str) -> None:
         await websocket.close(code=4503, reason=f"Agent {agent_id} is not running (status={handle.status}).")
         return
 
-    runner_url = settings.test.runner_url or f"ws://{handle.pod_name}.{handle.namespace}.svc.cluster.local:8000/ws/chat"
+    if conversation_id is not None and (agent_id, conversation_id) not in _conversations:
+        await websocket.close(code=4404, reason=f"Conversation {conversation_id} not found for agent {agent_id}.")
+        return
+
+    # Build runner URL — append conversation_id so the runner can isolate history
+    base_runner_url = (
+        settings.test.runner_url or f"ws://{handle.pod_name}.{handle.namespace}.svc.cluster.local:8000/ws/chat"
+    )
+    runner_url = f"{base_runner_url}?conversation_id={conversation_id}" if conversation_id else base_runner_url
     await websocket.accept()
+
+    # Register active websocket connection
+    if conversation_id:
+        key = (agent_id, conversation_id)
+        _active_chat_connections.setdefault(key, []).append(websocket)
 
     try:
         async with websockets.connect(runner_url) as runner_ws:  # type: ignore[attr-defined]
@@ -352,7 +461,18 @@ async def chat_proxy(websocket: WebSocket, agent_id: str) -> None:
 
             async def _client_to_runner() -> None:
                 """Forward messages from the external client to the runner pod."""
+                is_first_msg = True
                 async for message in websocket.iter_text():
+                    nonlocal conversation_id
+                    if is_first_msg and conversation_id:
+                        is_first_msg = False
+                        key = (agent_id, conversation_id)
+                        if key in _conversations:
+                            conv = _conversations[key]
+                            if conv.name == "New Conversation":
+                                title = _generate_conversation_title(message)
+                                conv.name = title
+                                logger.info(f"Auto-named conversation {conversation_id} to {title!r}")
                     await runner_ws.send(message)
 
             async def _runner_to_client() -> None:
@@ -378,6 +498,13 @@ async def chat_proxy(websocket: WebSocket, agent_id: str) -> None:
         logger.warning(f"Chat proxy error for agent {agent_id}: {e}")
         await websocket.close(code=1011, reason=str(e))
     finally:
+        if conversation_id:
+            key = (agent_id, conversation_id)
+            if key in _active_chat_connections:
+                if websocket in _active_chat_connections[key]:
+                    _active_chat_connections[key].remove(websocket)
+                if not _active_chat_connections[key]:
+                    _active_chat_connections.pop(key, None)
         logger.info(f"Chat proxy closed: {agent_id}")
 
 
@@ -572,6 +699,106 @@ async def update_task(agent_id: str, task_id: str, body: UpdateTaskRequest) -> T
         created_at=task.created_at,
         updated_at=task.updated_at,
     )
+
+
+# ---------------------------------------------------------------------------
+# Conversation management endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.post(path="/agents/{agent_id}/conversations", response_model=ConversationResponse, status_code=201)
+async def create_conversation(agent_id: str, body: CreateConversationRequest) -> ConversationResponse:
+    """Create a new isolated conversation for an agent.
+
+    Args:
+        agent_id: The agent sandbox identifier.
+        body:     Optional label for the conversation.
+
+    Returns:
+        The newly created conversation.
+
+    Raises:
+        HTTPException: 404 if the agent does not exist.
+    """
+    if agent_id not in _sandboxes:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found.")
+    name = body.name.strip() if (body.name and body.name.strip()) else "New Conversation"
+    conv = Conversation(agent_id=agent_id, name=name)
+    _conversations[(agent_id, conv.conversation_id)] = conv
+    logger.info(f"Conversation created: agent={agent_id}  id={conv.conversation_id}  name={conv.name!r}")
+    return ConversationResponse(
+        conversation_id=conv.conversation_id,
+        agent_id=conv.agent_id,
+        name=conv.name,
+        is_active=False,
+        created_at=conv.created_at,
+    )
+
+
+@app.get(path="/agents/{agent_id}/conversations", response_model=list[ConversationResponse])
+async def list_conversations(agent_id: str) -> list[ConversationResponse]:
+    """List all conversations for an agent.
+
+    Args:
+        agent_id: The agent sandbox identifier.
+
+    Returns:
+        All conversations belonging to the agent, ordered by creation time.
+
+    Raises:
+        HTTPException: 404 if the agent does not exist.
+    """
+    if agent_id not in _sandboxes:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found.")
+    convs = [v for k, v in _conversations.items() if k[0] == agent_id]
+    convs.sort(key=lambda c: c.created_at)
+    return [
+        ConversationResponse(
+            conversation_id=c.conversation_id,
+            agent_id=c.agent_id,
+            name=c.name,
+            is_active=(c.agent_id, c.conversation_id) in _active_chat_connections
+            and bool(_active_chat_connections[(c.agent_id, c.conversation_id)]),
+            created_at=c.created_at,
+        )
+        for c in convs
+    ]
+
+
+@app.delete(path="/agents/{agent_id}/conversations/{conversation_id}", status_code=204)
+async def delete_conversation(agent_id: str, conversation_id: str, force: bool = Query(False)) -> None:
+    """Delete a conversation.
+
+    Args:
+        agent_id:        The agent sandbox identifier.
+        conversation_id: The conversation UUID to delete.
+        force:           Whether to force-disconnect any active websocket connections and delete.
+
+    Raises:
+        HTTPException: 404 if the conversation does not exist.
+        HTTPException: 409 if the conversation has active connections and force is False.
+    """
+    key = (agent_id, conversation_id)
+    if key not in _conversations:
+        raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found for agent {agent_id}.")
+
+    # Check for active websocket connections
+    if _active_chat_connections.get(key):
+        if not force:
+            raise HTTPException(
+                status_code=409,
+                detail="Conversation has active connections. Use force to delete.",
+            )
+        # Force disconnect all active websocket connections
+        for ws in list(_active_chat_connections[key]):
+            try:
+                await ws.close(code=1001, reason="Conversation deleted via force option.")
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"Failed to close active websocket during force delete: {exc}")
+        _active_chat_connections.pop(key, None)
+
+    del _conversations[key]
+    logger.info(f"Conversation deleted: agent={agent_id}  id={conversation_id}")
 
 
 @app.get(path="/health")

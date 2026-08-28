@@ -87,3 +87,17 @@ class A2ATask(BaseModel):
     result: str | None = Field(default=None, description="Output produced by the agent when the task completes.")
     created_at: datetime = Field(default_factory=lambda: datetime.now(tz=UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(tz=UTC))
+
+
+# ---------------------------------------------------------------------------
+# Conversation
+# ---------------------------------------------------------------------------
+
+
+class Conversation(BaseModel):
+    """A named, isolated conversation associated with an agent."""
+
+    conversation_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    agent_id: str
+    name: str = Field(default="", description="Optional human-readable label.")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(tz=UTC))

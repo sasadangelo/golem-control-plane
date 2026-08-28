@@ -65,3 +65,19 @@ class HandshakeResponse(BaseModel):
 
     registered: bool
     agent_id: str
+
+
+class CreateConversationRequest(BaseModel):
+    """Request body for POST /agents/{agent_id}/conversations."""
+
+    name: str = ""
+
+
+class ConversationResponse(BaseModel):
+    """Response schema for conversation endpoints."""
+
+    conversation_id: str
+    agent_id: str
+    name: str
+    is_active: bool = False
+    created_at: datetime
