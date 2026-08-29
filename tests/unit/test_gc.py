@@ -51,7 +51,9 @@ def test_gc_deletes_expired_sandbox() -> None:
         async def _one_pass() -> None:
             now = time.time()
             expired = [
-                aid for aid, h in list(cp._sandboxes.items()) if now - cp._created_at.get(aid, now) > h.ttl_seconds
+                aid
+                for aid, h in list(cp._sandboxes.items())
+                if h.ttl_seconds is not None and now - cp._created_at.get(aid, now) > h.ttl_seconds
             ]
             for aid in expired:
                 h = cp._sandboxes[aid]
@@ -108,7 +110,9 @@ def test_gc_keeps_non_expired_sandbox() -> None:
         async def _one_pass() -> None:
             now = time.time()
             expired = [
-                aid for aid, h in list(cp._sandboxes.items()) if now - cp._created_at.get(aid, now) > h.ttl_seconds
+                aid
+                for aid, h in list(cp._sandboxes.items())
+                if h.ttl_seconds is not None and now - cp._created_at.get(aid, now) > h.ttl_seconds
             ]
             for aid in expired:
                 cp._sandboxes.pop(aid, None)
@@ -116,4 +120,59 @@ def test_gc_keeps_non_expired_sandbox() -> None:
         asyncio.run(_one_pass())
 
     assert "golem-agent-alive" in cp._sandboxes  # type: ignore[attr-defined]
+    mock_prov.delete_sandbox.assert_not_called()
+
+
+def test_gc_never_deletes_sandbox_without_ttl() -> None:
+    """GC loop must not delete a sandbox whose ttl_seconds is None (persistent)."""
+    for mod in (
+        "domain",
+        "domain.models",
+        "domain.ports",
+        "domain.ports.provisioner",
+        "infrastructure",
+        "infrastructure.adapters",
+        "infrastructure.adapters.k8s_provisioner",
+        "infrastructure.adapters.card_registry",
+        "interfaces",
+        "interfaces.api",
+        "interfaces.api.schemas",
+        "interfaces.api.app",
+    ):
+        sys.modules.pop(mod, None)
+
+    import infrastructure.adapters.k8s_provisioner as k8s_mod
+
+    with patch.object(k8s_mod, "_load_k8s_config"):
+        import interfaces.api.app as cp
+
+        mock_prov = MagicMock()
+        cp.provisioner = mock_prov  # type: ignore[attr-defined]
+        cp._sandboxes.clear()  # type: ignore[attr-defined]
+        cp._created_at.clear()  # type: ignore[attr-defined]
+
+        from domain.models import SandboxHandle, SandboxStatus
+
+        # ttl_seconds=None → sandbox must live forever
+        handle = SandboxHandle(agent_id="golem-agent-persistent", ttl_seconds=None)
+        handle.status = SandboxStatus.RUNNING
+        cp._sandboxes["golem-agent-persistent"] = handle  # type: ignore[attr-defined]
+        # Pretend it was created a very long time ago
+        cp._created_at["golem-agent-persistent"] = time.time() - 99999  # type: ignore[attr-defined]
+
+        import asyncio
+
+        async def _one_pass() -> None:
+            now = time.time()
+            expired = [
+                aid
+                for aid, h in list(cp._sandboxes.items())
+                if h.ttl_seconds is not None and now - cp._created_at.get(aid, now) > h.ttl_seconds
+            ]
+            for aid in expired:
+                cp._sandboxes.pop(aid, None)
+
+        asyncio.run(_one_pass())
+
+    assert "golem-agent-persistent" in cp._sandboxes  # type: ignore[attr-defined]
     mock_prov.delete_sandbox.assert_not_called()

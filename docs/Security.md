@@ -1,7 +1,5 @@
 # Golem — Security Model
 
-> **See also:** [Architecture](Architecture.md) · [Golem Runner](GolemRunner.md) · [Golem Control Plane](GolemControlPlane.md)
-
 This document describes the security model of the Golem platform end-to-end — from Kubernetes RBAC to sandbox isolation, secrets management, and the roadmap toward hardened production deployments.
 
 ---
@@ -12,7 +10,7 @@ This document describes the security model of the Golem platform end-to-end — 
 |---|---|---|
 | **Control Plane pod** | Trusted system component | K8s API Server — can create/delete Namespaces and Pods |
 | **Agent Runner pod** | Untrusted workload | Restricted egress only; no access to K8s API |
-| **Agent-to-Agent traffic** | Partially trusted | Validated via signed A2A Agent Cards |
+| **Agent-to-Agent traffic** | Partially trusted | Validated via signed A2A Agent Cards (not iiplemented in Phase 1) |
 | **External user** | Untrusted | REST/WebSocket API on Control Plane only |
 | **CI/CD pipeline** | Trusted operator | Image build and push; no runtime access |
 
@@ -98,7 +96,35 @@ A misbehaving or compromised agent cannot starve other sandboxes of cluster reso
 
 ### 3.3 Lifecycle Isolation — TTL Garbage Collection
 
-Each sandbox has a `ttl_seconds` annotation set at creation. The Control Plane GC loop runs every `GC_INTERVAL_SECONDS` (default: 60 s) and deletes sandboxes that have exceeded their TTL. This prevents Namespace sprawl and limits the blast radius of a forgotten or abandoned agent.
+The Control Plane runs a background GC coroutine that wakes up every `gc_interval` seconds and deletes any sandbox whose age has exceeded its `ttl_seconds`. Sandboxes without a TTL live until explicitly deleted.
+
+**Defaults:**
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `ttl_seconds` | `None` (no expiry) | Sandbox lives until `golem agent delete` is called |
+| `gc_interval` | `60` s | How often the GC loop checks for expired sandboxes |
+
+**How to create an ephemeral sandbox** (auto-deleted after N seconds):
+
+```bash
+# via the CLI — expires in 1 hour
+golem agent create --config agent/config.yaml --ttl-seconds 3600
+
+# via curl directly
+curl -X POST http://localhost:9000/agents \
+  -F "config=@agent/config.yaml" \
+  -F "ttl_seconds=3600"
+```
+
+**How to change the GC polling interval** (`src/golem-control-plane/config.yaml`):
+
+```yaml
+control-plane:
+  gc_interval: 30   # run GC every 30 seconds instead of 60
+```
+
+**Worst-case staleness:** a sandbox whose TTL expires at second 0 of a GC cycle will live at most one extra `gc_interval` before being collected.
 
 ---
 

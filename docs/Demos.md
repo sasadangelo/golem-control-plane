@@ -1,10 +1,8 @@
 # Golem — Demo Catalogue
 
-A living catalogue of high-impact demos. Each entry is self-contained: what it shows, why it is
-impressive, what it requires, and what the audience remembers after leaving the room.
-
-Demos are tagged by the platform features they require so you can pick one based on what is
-currently deployed.
+A living catalogue of runnable demos. Each entry maps directly to a folder under
+[`examples/`](https://github.com/sasadangelo/golem-runner/tree/main/examples) in the
+`golem-runner` repository. Demos are listed in recommended presentation order.
 
 ---
 
@@ -12,24 +10,28 @@ currently deployed.
 
 | Tag | Meaning |
 |---|---|
-| `bash` | embedded bash tool (available from Week 3) |
-| `http_check` | embedded HTTP health-check tool (available from Week 3) |
-| `agents-md` | AGENTS.md persona injection (Week 4) |
-| `skill-md` | SKILL.md protocol injection (Week 4) |
+| `agents-md` | `AGENTS.md` persona injection |
+| `skill-md` | `SKILL.md` procedural protocol injection |
+| `bash` | embedded bash tool |
+| `http_check` | embedded HTTP health-check tool |
+| `mcp-k8s` | Kubernetes MCP server (live cluster queries) |
 | `mcp-fs` | MCP filesystem server |
-| `conv` | multi-conversation / conversation_id (Week 5) |
-| `cron` | background cron/timer triggers (Week 5) |
+| `mcp-llmwiki` | LLM Wiki MCP server (RAG + wiki management) |
+| `timer` | background timer/cron trigger |
+| `slack` | Slack Incoming Webhook alert |
+| `a2a` | Agent-to-Agent task delegation |
 
 ---
 
 ## Demo Index
 
-| # | Name | Tags | Audience | Duration | Wow moment |
-|---|---|---|---|---|---|
-| 1 | [Fabio — SRE Agent](#1--fabio--sre-agent) | `bash` `http_check` `agents-md` `skill-md` | technical | 5 min | live container introspection |
-| 2 | [Angelo — Architect Agent](#2--angelo--architect-agent) | `mcp-fs` `agents-md` `skill-md` `conv` | security / IBM internal | 8 min | interview → complete IBM-standard TRI |
-| 3 | [Gianluca — Doc Agent](#3--gianluca--doc-agent) | `mcp-fs` `agents-md` `skill-md` | technical / knowledge mgmt | 5 min | raw files → conversational knowledge surface |
-| 4 | [Matteo — Monitor Agent](#4--matteo--monitor-agent) | `http_check` `agents-md` `skill-md` `cron` | devops / business | 5 min | monitors endpoints forever, alerts on failure |
+| # | Name | Folder | Tags | Audience | Duration | Wow moment |
+|---|---|---|---|---|---|---|
+| 1 | [Bonnie — Chatbot](#1--bonnie--chatbot) | `demo-chatbot` | `agents-md` | any | 3 min | pure LLM conversation, zero tools |
+| 2 | [Fabio — SRE Agent](#2--fabio--sre-agent) | `demo-sre` | `bash` `http_check` `mcp-k8s` `agents-md` `skill-md` | technical | 7 min | live Kubernetes cluster inspection |
+| 3 | [Gianluca — Doc Agent](#3--gianluca--doc-agent) | `demo-doc` | `mcp-llmwiki` `agents-md` | technical / knowledge mgmt | 10 min | PDF → cited wiki in one chat |
+| 4 | [Matteo — Monitor Agent](#4--matteo--monitor-agent) | `demo-monitor` | `http_check` `bash` `timer` `slack` `agents-md` | devops / business | 5 min | autonomous Slack alert, no human polling |
+| 5 | [A2A Pipeline — Log Analyzer + Report Writer](#5--a2a-pipeline--log-analyzer--report-writer) | `demo-a2a` | `bash` `a2a` `agents-md` `skill-md` | technical / business | 8 min | one CLI command triggers a 2-agent pipeline |
 
 ---
 
@@ -37,195 +39,341 @@ currently deployed.
 
 ---
 
-### 1 · Fabio — SRE Agent
+### 1 · Bonnie — Chatbot
 
-**Persona:** Fabio, Senior Site Reliability Engineer.
-Probes endpoints, inspects the container environment, produces structured incident reports.
+**Persona:** Bonnie, a general-purpose conversational assistant.
+No tools, no MCP servers, no skills — just the LLM behind an `AGENTS.md` persona.
 
-**Files:** `examples/demo-sre/` ✅ already implemented
+**Folder:** `examples/demo-chatbot/` ✅ implemented
 
 **The moment the audience remembers:**
-> You ask "give me a full environment report" and the agent runs 8 bash commands autonomously,
-> redacts secrets, and returns a structured Markdown report — hostname, memory, disk, mounted
-> files, running processes — all from inside a live Kubernetes pod.
+> A single CLI command deploys a named, opinionated assistant. No code, no rebuild —
+> just an `AGENTS.md` and a `config.yaml`. The platform is live in seconds.
+
+**Deploy:**
+```bash
+examples/demo-chatbot/deploy.sh
+golem agent status --id demo-chatbot-001   # → running
+golem chat --id demo-chatbot-001
+```
 
 **Demo questions:**
 ```
 Who are you and what can you do?
-Check if https://google.com is reachable and give me a structured report.
-Probe the runner's own health endpoint and tell me if this pod is healthy.
-Give me a full environment report: resources, mounted files, running processes.
-WatsonX might be unreachable. Check https://us-south.ml.cloud.ibm.com, then check
-memory and disk, and tell me if this pod is healthy enough for production traffic.
+Explain the difference between a VM and a container.
+Help me think through the pros and cons of a microservices architecture.
 ```
 
 **Why it is impressive:**
-- The agent knows its name, role, and constraints from `AGENTS.md` — not from the system prompt
-- Every report has the same structure every time — `SKILL.md` makes it repeatable, not improvised
-- Real tool calls, real output, real K8s pod — not a simulation
+- Establishes the baseline: this is what the platform looks like at its simplest
+- Shows that identity and behaviour come from `AGENTS.md`, not from hard-coded prompts
+- Zero external dependencies — works with no MCP servers, no tools, no secrets beyond WatsonX
 
-**Requires:** `bash` `http_check` `agents-md` `skill-md`
+**Requires:** `agents-md`
 
 ---
 
-### 2 · Angelo — Architect Agent
+### 2 · Fabio — SRE Agent
 
-**Persona:** Angelo, IBM Architect, Security & Compliance Analyst.
-Interviews a service owner about a new service through a structured 12-question protocol,
-then generates a complete IBM-standard Technical Requirements Interlock (TRI) document
-and saves it via MCP filesystem.
+**Persona:** Fabio, Senior Site Reliability Engineer.
+Probes HTTP endpoints, inspects the container environment, queries the live Kubernetes
+cluster via MCP, and produces structured incident reports.
 
-**Files:** `examples/demo-architecture/` ✅ implemented
+**Folder:** `examples/demo-sre/` ✅ implemented
 
 **The moment the audience remembers:**
-> The service owner answers 12 questions in natural language. Angelo generates a complete
-> IBM-standard TRI — every section filled, every table populated — and writes it to disk.
-> What used to take 2 days of back-and-forth with the security team takes 8 minutes.
+> You ask "check the golem-control-plane namespace for issues" and Fabio calls three MCP
+> tools autonomously — `list_pods`, `list_events`, `http_check` — then synthesises
+> all results into a single incident report without being told how.
+
+**Deploy:**
+```bash
+# 1 — deploy the Kubernetes MCP server (once per cluster)
+examples/demo-sre/mcp/kubernetes/deploy.sh
+
+# 2 — deploy Fabio
+golem agent create \
+  --config    examples/demo-sre/agent/config.yaml \
+  --agents-md examples/demo-sre/agent/AGENTS.md \
+  --skill     examples/demo-sre/agent/skills/check-health.md \
+  --skill     examples/demo-sre/agent/skills/inspect-env.md \
+  --skill     examples/demo-sre/agent/skills/inspect-k8s.md
+
+golem agent status --id demo-sre-001   # → running
+golem chat --id demo-sre-001
+```
 
 **Demo conversation:**
 ```
-Hi Angelo, I need to onboard a new service.
+Who are you and what can you do?
 
-[Angelo conducts structured 12-question interview:]
-  Q1  Service name & purpose
-      → "PaymentGateway — handles PCI-DSS card transactions for IBM TLS clients"
+Check if https://google.com is reachable and give me a structured report.
 
-  Q2  Ownership
-      → "PM: Anna Rossi — Dev: Luca Bianchi"
+Give me a full environment report of this container: resources, mounted files,
+running processes.
 
-  Q3  TRI approvers & reviewers
-      → "Approver: sec-review@ibm.com — Reviewer: platform@ibm.com"
+List all pods across all namespaces and tell me if anything is failing.
 
-  Q4  Assumptions
-      → "Access to PostgreSQL on IBM Cloud, Stripe API, IBM AppID"
+The golem-control-plane namespace might have issues. Check the pod statuses there,
+look for any warning events, and also verify the control plane HTTP endpoint is reachable.
 
-  Q5  Success metrics
-      → "95% of transactions < 2s, zero plain-text card data, SOC2 compliant"
-
-  Q6  Architecture & AI
-      → "Two Python microservices. Uses IBM Granite 3.8B via WatsonX for fraud detection."
-
-  Q7  Trust zones
-      → "Kubernetes Cluster, IBM Cloud Services, Internet (API Connect)"
-
-  Q8  Interfaces & endpoints
-      → "POST /payments — public, IBM API Connect, OAuth2 AppID"
-
-  Q9  Data flows
-      → "Client → API Connect: HTTPS TLS 1.3, card token, classification: client-SPI"
-
-  Q10 Datastores
-      → "PostgreSQL: transaction logs, AES-256, Key Protect, 7-year retention"
-
-  Q11 External dependencies
-      → "IBM AppID, API Connect, Stripe API, Secrets Manager, Key Protect"
-
-  Q12 Reliability & operations
-      → "2 replicas/2 AZs, OnePipeline CI/CD, PagerDuty. Risk: Stripe egress via Calico."
-
-[Angelo reads TRI-template.md via MCP filesystem]
-[Angelo generates complete IBM-standard TRI — all sections filled]
-[Angelo writes TRI to /data/tri-output/ via MCP filesystem]
-
-  ✅ Phase 2 complete — TRI generated for PaymentGateway
-  ✅ Phase 3 complete — TRI saved to /data/tri-output/TRI-PaymentGateway-2026-08.md
+Give me a full cluster health report: namespaces, deployments, any failing workloads.
 ```
 
 **Why it is impressive:**
-- Replaces 2 days of manual work with an 8-minute conversation
-- The TRI follows the exact IBM standard — `SKILL.md` encodes the protocol, not the LLM's memory
-- Every section is filled: trust zones, data flows, datastores, AI considerations — all populated
-- The agent reads the template from disk via MCP — the output is traceable and auditable
-- One CLI command deploys the agent; `golem agent delete` tears it down cleanly
+- `AGENTS.md` tells Fabio *when* to use `bash` vs `http_check` vs MCP tools — no ambiguity
+- `SKILL.md` files make every report structurally identical: Summary → Findings → Root Cause → Recommendations
+- Cross-tool correlation (HTTP + K8s events + pod status) in a single response
+- Real Kubernetes API data, not a simulation
 
-**Setup:** MCP filesystem server mounted at `/data/tri-templates` with `TRI-template.md`.
-Output directory at `/data/tri-output` writable by Angelo.
+**Teardown:**
+```bash
+golem agent delete --id demo-sre-001
+# optional: helm uninstall -n kubernetes-mcp-server kubernetes-mcp-server
+```
 
-**Requires:** `mcp-fs` `agents-md` `skill-md` `conv`
+**Requires:** `bash` `http_check` `mcp-k8s` `agents-md` `skill-md`
 
 ---
 
 ### 3 · Gianluca — Doc Agent
 
-**Persona:** Gianluca, Document Ingestion & Knowledge Agent.
-Accepts document ingestion, sends extracted knowledge through an LLM Wiki MCP flow, saves it
-into a wiki, then lets you converse with that document corpus.
+**Persona:** Gianluca, Document Knowledge Assistant.
+Ingests PDFs and notes via a web UI, builds a structured wiki through MCP tools,
+and answers questions from the knowledge base with footnote citations.
+
+**Folder:** `examples/demo-doc/` ✅ implemented
+
+**Architecture:**
+```
+Browser  http://localhost:3000
+    └──► llmwiki-web (Next.js)
+              │ REST  http://localhost:8000
+              ▼
+    ┌─────────────────────────────────────┐
+    │  Pod: llmwiki  (emptyDir /workspace)│
+    │  container: api  :8000              │
+    │  container: mcp  :8080              │
+    │  /workspace/wiki/  ← Markdown pages │
+    │  /workspace/*.pdf  ← raw sources    │
+    └─────────────────────────────────────┘
+              ▲  MCP  http://llmwiki-mcp:8080/mcp
+    ┌─────────┴──────────┐
+    │     Gianluca        │  demo-doc-001
+    └─────────────────────┘
+```
 
 **The moment the audience remembers:**
-> You upload a product manual, a policy PDF, and a design note. Gianluca ingests them, pushes
-> the structured knowledge into a wiki automatically, then answers detailed questions as if
-> the documentation had always been organized that way.
+> You upload a PDF in the browser. You ask Gianluca to read it. Thirty seconds later
+> the wiki sidebar shows three new pages — concepts, entities, overview — with full
+> Markdown rendering and footnote citations pointing to exact page numbers.
 
-**Demo questions:**
+**Deploy:**
+```bash
+# 1 — build and deploy the llmwiki stack (once per cluster)
+examples/demo-doc/mcp/llmwiki/deploy.sh
+kubectl rollout status deployment/llmwiki
+kubectl rollout status deployment/llmwiki-web
+
+# 2 — deploy Gianluca
+examples/demo-doc/deploy.sh
+golem agent status --id demo-doc-001   # → running
+
+# 3 — expose services
+kubectl port-forward svc/llmwiki-mcp  8080:8080 &
+kubectl port-forward svc/llmwiki-api  8000:8000 &
+kubectl port-forward svc/llmwiki-web  3000:3000 &
 ```
-Create a document agent for this workspace.
-Ingest these documents into your knowledge base.
-Use the LLM Wiki MCP to extract and structure the content, then save it into the wiki.
-Now tell me:
-- what are the key concepts across these documents?
-- where do they disagree or overlap?
-- answer this question only using the ingested docs: how does the system handle failures?
-Show me the wiki page structure you created.
+
+**Demo steps:**
+1. Open **http://localhost:3000** → **Sources → Upload** → drag `attention-is-all-you-need.pdf`
+2. Open a chat: `golem chat --id demo-doc-001`
+
 ```
+Hi Gianluca, what can you help me with?
+
+I've uploaded attention-is-all-you-need.pdf — read it and create wiki pages.
+
+What are the main contributions of the Transformer paper?
+
+Is the wiki in good shape?
+```
+
+3. Refresh **http://localhost:3000** — wiki pages appear under the **Wiki** sidebar.
 
 **Why it is impressive:**
-- Shows end-to-end document ingestion, knowledge extraction, and persistence into a wiki
-- The audience sees the jump from raw files to a conversational knowledge surface without manual curation
-- The same wiki is queryable across multiple conversations — `conv` keeps each session isolated
+- Raw PDF → cited, structured Markdown wiki with zero manual curation
+- The audience can browse the result in the UI in real time
+- Answers carry footnotes pointing to exact page numbers — not hallucinated knowledge
+- `lint` detects hygiene issues (missing frontmatter, broken links) automatically
 
-**Requires:** `mcp-fs` `agents-md` `skill-md`
+**Teardown:**
+```bash
+golem agent delete --id demo-doc-001
+helm uninstall llmwiki llmwiki-web
+```
+
+**Requires:** `mcp-llmwiki` `agents-md`
 
 ---
 
 ### 4 · Matteo — Monitor Agent
 
-**Persona:** Matteo, Uptime & Reliability Monitor.
-Continuously polls a set of HTTP endpoints on a configurable schedule, tracks their status
-over time, and raises structured alerts when a failure is detected.
+**Persona:** Matteo, Site Reliability Agent.
+Polls an HTTP endpoint on a 30-second timer, sends a Slack alert when the service
+goes down, and sends a recovery notification when it comes back up.
+No open chat session required — runs entirely in background.
+
+**Folder:** `examples/demo-monitor/` ✅ implemented
+
+```
+[timer: every 30s]
+      ↓
+  http_check → mock-service /health
+      ↓
+  HTTP 200?  →  log "✅ healthy"
+  HTTP 503?  →  bash curl → Slack "🚨 SERVICE DOWN"
+               (next tick, if 200) → Slack "✅ SERVICE RECOVERED"
+```
 
 **The moment the audience remembers:**
-> You tell Matteo which endpoints to watch. You come back 5 minutes later and find a structured
-> alert already waiting — he detected the failure, classified its severity, and logged it
-> autonomously while nobody was watching.
+> Nobody is watching. You flip the mock service to `DOWN` via a curl command.
+> Thirty seconds later a Slack message arrives: *🚨 SERVICE DOWN*. You flip it
+> back. Another message: *✅ SERVICE RECOVERED*. The agent never stops watching.
 
-**Demo questions:**
+**Setup:**
+```bash
+# 1 — create your Slack Incoming Webhook
+#     api.slack.com/apps → New App → Incoming Webhooks → Add to Workspace
+
+# 2 — configure the secret
+cd examples/demo-monitor && cp .env.example .env
+# edit .env: SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+
+# 3 — deploy the mock service
+examples/demo-monitor/mock-service/deploy.sh
+kubectl port-forward -n demo-monitor svc/mock-service 8080:8080 &
+curl http://localhost:8080/health
+# → {"status": "ok", "service": "mock-service"}
+
+# 4 — deploy Matteo (injects SLACK_WEBHOOK_URL as a K8s Secret automatically)
+examples/demo-monitor/deploy.sh
+golem agent tasks --agent demo-monitor-001   # tasks accumulate every 30s
 ```
-Who are you and what can you monitor?
-Start monitoring https://httpstat.us/200 every 30 seconds and alert me if it goes down.
-Now also watch https://httpstat.us/500 — that one is already failing.
-Give me a status report of all endpoints you are currently monitoring.
-Stop monitoring the 500 endpoint and summarise what you observed.
-```
 
-**Expected output shape:**
-```markdown
-## Uptime Report — Matteo Monitor Agent
+**Live demo sequence:**
+```bash
+# bring the service DOWN
+curl -X POST http://localhost:8080/admin/down
+# → {"status": "DOWN"}
+# wait ~30s → Slack: 🚨 SERVICE DOWN
 
-### Monitored Endpoints (2)
-
-| Endpoint | Status | Last Check | Latency |
-|---|---|---|---|
-| https://httpstat.us/200 | ✅ UP   | 14:03:22 | 112 ms |
-| https://httpstat.us/500 | ❌ DOWN | 14:03:24 | 98 ms  |
-
-### Alerts (1 active)
-
-**⚠️ ALERT — https://httpstat.us/500**
-- First failure: 14:00:01
-- Consecutive failures: 6
-- HTTP status returned: 500 Internal Server Error
-- Recommended action: investigate upstream service
-
-### Summary
-1 of 2 endpoints is currently unreachable.
+# bring it back UP
+curl -X POST http://localhost:8080/admin/up
+# → {"status": "UP"}
+# wait ~30s → Slack: ✅ SERVICE RECOVERED
 ```
 
 **Why it is impressive:**
-- The agent keeps running and checking on its own schedule — no human polling required
-- The alert format is identical every time (`SKILL.md` defines the protocol)
-- `cron` triggers show the platform's background automation capability with zero extra infrastructure
+- The agent keeps running on its own schedule — no human intervention
+- Alert format is consistent every time (`AGENTS.md` defines the exact template)
+- Secrets (Slack webhook) are injected as Kubernetes Secrets, never baked into images
+- `golem agent tasks` provides full observability of every autonomous check cycle
 
-**Requires:** `http_check` `agents-md` `skill-md` `cron`
+**Teardown:**
+```bash
+kubectl delete namespace demo-monitor-001
+kubectl delete namespace demo-monitor
+```
+
+**Requires:** `http_check` `bash` `timer` `slack` `agents-md`
+
+---
+
+### 5 · A2A Pipeline — Log Analyzer + Report Writer
+
+**Personas:**
+- **Log Analyzer** — fetches live application logs, computes error rates, produces structured findings, delegates to the Report Writer.
+- **Report Writer** — receives findings via A2A delegation and produces a polished Markdown incident report.
+
+**Folder:** `examples/demo-a2a/` ✅ implemented
+
+```
+User (CLI)
+    │  golem agent task-send
+    ▼
+log-analyzer-001
+    │  bash curl → mock-log-service /logs
+    │  delegate_to_agent("report-writer-001", findings)
+    ▼
+report-writer-001
+    │  bash date
+    │  produces Markdown incident report
+    ▼
+  task result visible on both agents
+```
+
+**The moment the audience remembers:**
+> One CLI command. Two agents collaborate autonomously without any human coordination.
+> The Log Analyzer never writes the report. The Report Writer never touches the logs.
+> Each agent does exactly one thing — and `golem agent tasks` shows the full delegation
+> chain on both sides.
+
+**Deploy:**
+```bash
+# 1 — deploy the mock log service
+examples/demo-a2a/mock-log-service/deploy.sh
+kubectl port-forward -n demo-a2a svc/mock-log-service 8080:8080 &
+curl http://localhost:8080/logs | python3 -m json.tool | head -20
+# → 20 healthy INFO entries
+
+# 2 — deploy both agents (~20 seconds)
+examples/demo-a2a/deploy.sh
+golem agent status --id report-writer-001   # → running
+golem agent status --id log-analyzer-001    # → running
+```
+
+**Live demo sequence:**
+```bash
+# inject errors into the mock service
+curl -X POST "http://localhost:8080/admin/inject-errors?count=15"
+# → {"injected": 15, "error_mode": true}
+
+# trigger the pipeline with ONE command
+golem agent task-send --agent log-analyzer-001 \
+  --message "Analyse the application logs and produce a formal incident report." \
+  --wait --timeout 300
+
+# inspect the delegation chain
+golem agent tasks --agent log-analyzer-001   # source=golem-cli → completed
+golem agent tasks --agent report-writer-001  # source=a2a       → completed
+
+# read the final report
+golem agent task-get --agent log-analyzer-001 --task <task_id>
+
+# restore the service
+curl -X POST http://localhost:8080/admin/clear-errors
+```
+
+**Why it is impressive:**
+
+| What the audience sees | What it demonstrates |
+|---|---|
+| One CLI command triggers a 2-agent pipeline | A2A delegation — agents calling agents |
+| Log Analyzer never writes the report | Clean separation of responsibilities |
+| Report Writer never touches logs | Each agent does exactly one thing |
+| Task visible on both agents independently | Full observability of multi-agent execution |
+| Each agent is an isolated K8s pod | Real distributed system, not a monolith |
+| Zero code — only `AGENTS.md` + `config.yaml` | Configuration-driven multi-agent intelligence |
+
+**Teardown:**
+```bash
+golem agent delete --id log-analyzer-001
+golem agent delete --id report-writer-001
+kubectl delete namespace demo-a2a
+```
+
+**Requires:** `bash` `a2a` `agents-md` `skill-md`
 
 ---
 
@@ -235,25 +383,27 @@ Stop monitoring the 500 endpoint and summarise what you observed.
 
 | Audience | Best demo |
 |---|---|
-| Developer / technical | 1 · Fabio (SRE) |
-| Security / IBM internal | 2 · Angelo (TRI) |
+| Any — first impression | 1 · Bonnie (zero setup, shows the platform in 3 min) |
+| Developer / technical | 2 · Fabio (SRE) |
 | Knowledge management | 3 · Gianluca (Doc Agent) |
 | DevOps / business | 4 · Matteo (Monitor) |
-| Mixed / first impression | 1 · Fabio — works with zero external setup |
+| Technical + business combined | 5 · A2A Pipeline |
 
 ### By setup complexity
 
 | Complexity | Demos | What you need |
 |---|---|---|
-| **Zero setup** (works today) | 1, 4 | just minikube + golem deployed |
-| **Low** (one MCP server) | 3 | + one MCP filesystem server container |
-| **Medium** (MCP + templates) | 2 | + MCP filesystem server + TRI-template.md |
+| **Zero setup** | 1 | minikube + golem deployed |
+| **Low** | 2 | + Kubernetes MCP server (one `deploy.sh`) |
+| **Medium** | 3, 5 | + one MCP server container |
+| **Medium + external secret** | 4 | + Slack Incoming Webhook URL |
 
 ### Recommended progression
 
 ```
-First demo ever               →  1 · Fabio    (zero setup, immediate wow)
-First IBM audience (security) →  2 · Angelo   (TRI — hits a real pain)
-First knowledge mgmt audience →  3 · Gianluca (doc ingestion → wiki)
-First DevOps / business pitch →  4 · Matteo   (autonomous monitoring)
+First demo ever                →  1 · Bonnie       (zero setup, platform baseline)
+First technical audience       →  2 · Fabio         (SRE — tools + K8s MCP)
+First knowledge-mgmt audience  →  3 · Gianluca      (doc ingestion → wiki)
+First DevOps / business pitch  →  4 · Matteo        (autonomous monitoring + Slack)
+Closing wow for any audience   →  5 · A2A Pipeline  (multi-agent collaboration)
 ```

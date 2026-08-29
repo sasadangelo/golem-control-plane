@@ -54,7 +54,7 @@ def test_agent_spec_defaults() -> None:
     spec = AgentSpec(agent_id="aria-sre-001")
     assert spec.agent_id == "aria-sre-001"
     assert spec.mode == SandboxMode.EPHEMERAL
-    assert spec.ttl_seconds == 3600
+    assert spec.ttl_seconds is None
     assert spec.runner_config == ""
 
 

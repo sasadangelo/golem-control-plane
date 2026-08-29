@@ -86,7 +86,7 @@ async def _gc_loop() -> None:
         expired: list[str] = [
             agent_id
             for agent_id, handle in list(_sandboxes.items())
-            if now - _created_at.get(agent_id, now) > handle.ttl_seconds
+            if handle.ttl_seconds is not None and now - _created_at.get(agent_id, now) > handle.ttl_seconds
         ]
         for agent_id in expired:
             handle: SandboxHandle = _sandboxes[agent_id]
@@ -138,7 +138,10 @@ app: FastAPI = FastAPI(title="Golem Control Plane", version="0.1.0", lifespan=li
 @app.post(path="/agents", response_model=CreateAgentResponse, status_code=201)
 async def create_agent(
     config: UploadFile = File(description="Runner config.yaml file."),  # noqa: B008
-    ttl_seconds: int = Form(default=3600, description="Sandbox TTL in seconds."),
+    ttl_seconds: int | None = Form(
+        default=None,
+        description="Sandbox TTL in seconds. Omit (or pass None) for a sandbox that never expires automatically.",
+    ),
     agents_md: UploadFile | None = File(default=None, description="Optional AGENTS.md file."),  # noqa: B008
     skills: list[UploadFile] = File(default=[], description="Optional SKILL.md files (one per skill)."),  # noqa: B008
 ) -> CreateAgentResponse:

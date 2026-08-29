@@ -1,12 +1,53 @@
 <p align="center">
-  <img src="docs/img/golem-logo.png" alt="Golem Control Plane" width="320"/>
+  <img src="docs/img/golem-logo.png" alt="Golem" width="320"/>
 </p>
 
-<h1 align="center">Golem Control Plane</h1>
-<p align="center"><strong>Kubernetes-native agent sandbox provisioning and A2A Card Registry</strong></p>
+<h1 align="center">Golem</h1>
+<p align="center"><strong>Kubernetes-native self-provisioning agentic platform</strong></p>
 <p align="center">
-  Provision isolated AI agents on demand · Track their lifecycle · Discover them via A2A Agent Cards
+  Multi-cloud · Multi-provider · Multi-model · Multi-protocol
 </p>
+
+---
+
+## Introduction
+
+**Golem** is a self-provisioning, Kubernetes-native agentic platform designed to run and orchestrate autonomous AI agents securely and efficiently.
+
+The vision for Golem is to become a truly **multi-cloud, multi-provider, multi-model, and multi-protocol** ecosystem:
+- **Deployment targets**: Today Golem is Kubernetes-native. The roadmap includes support for local deployments using **Docker** or **Podman**, virtual machines (**VMs**), and serverless architectures with **Knative**.
+- **Agent frameworks**: The platform is currently implemented in **Python** leveraging **LangChain** and **LangGraph**, with planned support for frameworks such as **CrewAI** and **AutoGen**.
+- **Models and protocols**: At present, Golem supports **WatsonX** as the model provider and protocol, enabling access to all LLMs supported on the WatsonX platform. Additional providers (e.g. OpenAI, Anthropic, Ollama, vLLM) and protocols will follow.
+
+---
+
+## Components
+
+Golem is composed of three core components:
+
+1. **[Golem Control Plane](https://github.com/sasadangelo/golem-control-plane)** *(this repository)* — The central orchestration service that exposes the management REST API, provisions sandboxed execution environments, routes conversations, and manages A2A (Agent-to-Agent) card registration and task broker interactions.
+2. **[Golem Runner](https://github.com/sasadangelo/golem-runner)** — A generic, containerized AI agent runtime with a configurable loop (LangGraph-based), supporting tool execution (MCP), skills (`SKILL.md`), agent identity (`AGENTS.md`), and automation triggers (Cron, Timer, Webhook).
+3. **[Golem CLI](https://github.com/sasadangelo/golem-cli)** — The unified command-line tool to administer the platform, manage control plane contexts, deploy and inspect agents, interact via streaming chat, and submit/monitor A2A tasks.
+
+---
+
+## Golem Control Plane
+
+The **Golem Control Plane** is a FastAPI service that manages isolated AI agent sandboxes on Kubernetes.
+
+For each agent it provisions:
+- a dedicated **Namespace** (derived from the agent ID)
+- a **Pod** running the agent runner image
+- a **ConfigMap** containing `config.yaml`, optional `AGENTS.md` (identity/behaviour context), and `SKILL.md` files (declarative skills)
+- a **ResourceQuota** (CPU and memory limits)
+- a **NetworkPolicy** (HTTPS + DNS egress only for security isolation)
+- environment variables and secrets injected from existing K8s secrets (`env_secrets`)
+
+It also provides:
+- an in-memory **A2A Card Registry** with automatic polling and push-based startup handshake (`POST /agents/{id}/handshake`)
+- an **A2A Task Broker & Delegation** service (`/tasks` and `/delegate`)
+- a **WebSocket Chat Proxy** with multi-session / multi-conversation support (`/chat/{agent_id}?conversation_id=...`) and auto-titling
+- a background **TTL Garbage Collector** that automatically tears down expired agent sandboxes
 
 ---
 
@@ -14,59 +55,43 @@
 
 | Document | Description |
 |---|---|
+| [Local Deployment](docs/LocalDeployment.md) | Step-by-step guide to run and develop Control Plane locally |
+| [Minikube Deployment](docs/MinikubeDeployment.md) | Full Kubernetes deployment guide on Minikube (`golem-system`) |
+| [API Reference](docs/APIReference.md) | Complete REST API & WebSocket reference with schemas and curl examples |
 | [Architecture](docs/Architecture.md) | Components, protocols (MCP / A2A), security model, and end-to-end data flow |
 | [Security](docs/Security.md) | K8s RBAC, sandbox isolation, secrets management, and hardening roadmap |
-| [Golem Control Plane](docs/GolemControlPlane.md) | REST API reference, K8s Provisioner, A2A Card Registry |
 | [Roadmap](docs/Roadmap.md) | MVP sprint plan, delivery matrix, and post-MVP milestones |
 | [Demos](docs/Demos.md) | Catalogue of 10 high-impact demos — what to show, to whom, and in what order |
 
 ---
 
-## Overview
-
-The **Golem Control Plane** is a FastAPI service that manages isolated AI agent sandboxes on Kubernetes.
-
-For each agent it provisions:
-- a dedicated **Namespace**
-- a **Pod** running the agent runner image
-- a **ResourceQuota** (CPU/memory limits)
-- a **NetworkPolicy** (HTTPS + DNS egress only)
-
-It also maintains an in-memory **A2A Card Registry** that auto-fetches and exposes each agent's `/.well-known/agent.json` card once the pod is Running.
-
-A background **TTL garbage collector** automatically tears down expired sandboxes.
-
----
-
 ## Features
+
+### Delivered (MVP)
 
 | Feature | Status |
 |---|:---:|
 | Provision an isolated K8s sandbox (Namespace + Pod + ResourceQuota + NetworkPolicy) per agent | ✅ |
 | Kubernetes RBAC — dedicated ServiceAccount with least-privilege ClusterRole | ✅ |
-| A2A Agent Card Registry — auto-fetches `/.well-known/agent.json` once pod is Running | ✅ |
-| TTL-based garbage collector — tears down expired sandboxes automatically | ✅ |
-| WebSocket chat proxy — streams LLM tokens from runner pod to client | ✅ |
-| Single in-memory conversation state per agent (one message history per agent) | ✅ |
-| `config.yaml` upload via multipart — injects runner configuration as a K8s ConfigMap | ✅ |
+| Runner configuration via multipart `config.yaml` injected into ConfigMap | ✅ |
+| Agent identity (`AGENTS.md`) and declarative skills (`SKILL.md`) mounted via ConfigMap | ✅ |
+| MCP multi-server client — static URIs declared in `config.yaml`, tools registered at runner boot | ✅ |
+| Secret injection via `env_secrets` referencing K8s secrets | ✅ |
+| A2A Agent Card (`/.well-known/agent.json`) published at runner boot | ✅ |
+| A2A Card Registry — push handshake (`POST /agents/{id}/handshake`) + pull fallback | ✅ |
+| A2A Task lifecycle broker (`submitted → working → completed / failed`) | ✅ |
+| A2A Task Delegation between agents (`POST /agents/{id}/delegate`) | ✅ |
+| Background automation triggers in runner: Cron, Timer, Webhook | ✅ |
+| WebSocket chat proxy — bidirectional token streaming from runner pod to client | ✅ |
+| Multi-conversation support (`conversation_id` per session) with auto-titling | ✅ |
+| TTL-based garbage collector — optional per-agent TTL, sandboxes without TTL live until deleted | ✅ |
+| Abstract `Provisioner` interface (Kubernetes + Mock implementations) | ✅ |
 | Control Plane deployable inside Minikube (`golem-system` namespace) | ✅ |
-| REST API: `POST /agents`, `GET /agents`, `GET /agents/{id}/status`, `DELETE /agents/{id}`, `GET /agents/{id}/card` | ✅ |
-| Abstract `Provisioner` interface (K8s + Mock implementations) | ✅ |
-| Multi-conversation support (`conversation_id` per session) | 🔜 |
-| Helm Chart for one-command deployment | 🔜 |
-| A2A task lifecycle broker (`submitted → working → completed / failed`) | 🔜 |
-
----
-
-## Prerequisites
-
-| Tool | Version | Purpose |
-|---|---|---|
-| Python | 3.12+ | Runtime |
-| [uv](https://docs.astral.sh/uv/) | latest | Dependency management |
-| [Podman](https://podman.io/) | 4+ | Container builds |
-| [Minikube](https://minikube.sigs.k8s.io/) | latest | Local K8s cluster |
-| [kubectl](https://kubernetes.io/docs/tasks/tools/) | 1.28+ | Cluster management |
+| CLI: `golem cp *` — multi-context control plane management | ✅ |
+| CLI: `golem agent create/list/delete/status` — full agent lifecycle | ✅ |
+| CLI: `golem agent tasks` / `golem agent task-send` — A2A task submission and inspection | ✅ |
+| CLI: `golem chat` — interactive streaming chat | ✅ |
+| CLI: `golem conv *` — conversation management | ✅ |
 
 ---
 
@@ -74,188 +99,65 @@ A background **TTL garbage collector** automatically tears down expired sandboxe
 
 ```
 golem-control-plane/
-├── src/golem-control-plane/    # Application source
-│   ├── interfaces/api/app.py   # FastAPI app, endpoints, TTL GC
-│   ├── domain/models.py        # AgentSpec, SandboxHandle, SandboxStatus
-│   ├── domain/ports/           # Abstract Provisioner interface
-│   ├── infrastructure/         # K8s + Mock provisioner, Card Registry
-│   └── core/                   # Config, logging
-├── deploy/golem-control-plane/ # K8s manifests
-│   ├── namespace.yaml
-│   ├── serviceaccount.yaml
-│   ├── clusterrole.yaml
-│   ├── clusterrolebinding.yaml
-│   ├── deployment.yaml
-│   ├── service.yaml
-│   └── secret.yaml.example
-├── minikube/
-│   └── load_images.sh          # Save image with Podman and load into Minikube
-├── tests/unit/                 # Unit tests
-├── docs/                       # Architecture, Security, Roadmap
-├── app.sh                      # Start the server locally
-├── build_images.sh             # Build the container image with Podman
-├── deploy.sh                   # Deploy to Minikube / K8s
-├── Dockerfile                  # Container image
-└── pyproject.toml              # Dependencies, ruff, pytest config
+├── src/golem-control-plane/           # Application source code
+│   ├── interfaces/api/
+│   │   ├── app.py                     # FastAPI app, endpoints, WebSocket proxy, TTL GC
+│   │   └── schemas.py                 # Pydantic request / response models
+│   ├── domain/
+│   │   ├── models.py                  # AgentSpec, SandboxHandle, SandboxStatus, A2ATask, Conversation
+│   │   └── ports/
+│   │       └── provisioner.py         # Abstract Provisioner interface (ABC)
+│   ├── infrastructure/
+│   │   └── adapters/
+│   │       ├── k8s_provisioner.py     # Kubernetes client implementation
+│   │       ├── mock_provisioner.py    # In-memory mock provisioner for local smoke-testing
+│   │       └── card_registry.py       # In-memory A2A Agent Card Registry
+│   ├── core/
+│   │   ├── config.py                  # Pydantic settings & config loader
+│   │   └── log.py                     # Structured loguru logging
+│   └── config.yaml                    # Control Plane default configuration
+├── deploy/golem-control-plane/        # Kubernetes manifests
+│   ├── namespace.yaml                 # Namespace: golem-system
+│   ├── serviceaccount.yaml            # ServiceAccount: golem-control-plane
+│   ├── clusterrole.yaml               # RBAC ClusterRole
+│   ├── clusterrolebinding.yaml        # RBAC ClusterRoleBinding
+│   ├── deployment.yaml                # Control Plane Deployment (port 9000)
+│   ├── service.yaml                   # ClusterIP Service
+│   └── secret.yaml.example            # WatsonX credentials secret template
+├── minikube/                          # Minikube helper scripts
+│   ├── check-minikube-network.sh      # Network diagnostic helper
+│   ├── fix-minikube-network.sh        # Network routing fix helper
+│   ├── load_images.sh                 # Load local image into Minikube
+│   └── delete_images.sh               # Cleanup images from Minikube
+├── tests/unit/                        # Unit and integration test suite
+├── docs/                              # Technical documentation
+├── app.sh                             # Start the server locally
+├── build_images.sh                    # Build the container image with Podman/Docker
+├── delete_images.sh                   # Remove local container images
+├── deploy.sh                          # Deploy manifests to Minikube / K8s
+├── Dockerfile                         # Multi-stage uv container build
+└── pyproject.toml                     # Dependencies, ruff, pytest, mypy config
 ```
 
 ---
 
-## Local Development
+## Getting Started
 
-### 1. Install dependencies
+Choose a deployment guide based on your target environment:
 
-```bash
-uv sync --extra dev
-```
-
-### 2. Run the test suite
-
-```bash
-uv run python -m pytest tests/unit/ -v
-```
-
-### 3. Start the server locally
-
-```bash
-./app.sh
-```
-
-Configuration is split between two files:
-
-**`src/golem-control-plane/config.yaml`** — non-secret values, committed to the repo:
-
-| Field | Default | Description |
-|---|---|---|
-| `control-plane.host` | `0.0.0.0` | Bind address |
-| `control-plane.port` | `9000` | Bind port |
-| `control-plane.workers` | `1` | Uvicorn worker count |
-| `control-plane.gc_interval` | `60` | TTL GC polling interval (seconds) |
-| `control-plane.runner_image` | `localhost/golem-runner:v1` | Agent runner image |
-| `llm.provider` | `watsonx` | LLM provider identifier |
-| `llm.protocol` | `watsonx` | LLM protocol identifier |
-| `llm.model` | `openai/gpt-oss-120b` | Model identifier |
-| `llm.project_id` | — | WatsonX project ID |
-| `llm.url` | `https://us-south.ml.cloud.ibm.com` | WatsonX endpoint |
-
-**`src/golem-control-plane/.env`** — secrets only, never committed (copy from `.env.example`):
-
-| Variable | Description |
-|---|---|
-| `WATSONX_API_KEY` | IBM WatsonX API key |
-
-### 4. Smoke test the local server
-
-In a second terminal, while `./app.sh` is running:
-
-```bash
-# Health check — must return {"status": "ok"}
-curl -s http://localhost:9000/health
-
-# List agents — must return []
-curl -s http://localhost:9000/agents
-
-# Create an agent — will return HTTP 500 because there is no K8s cluster locally (expected)
-curl -s -X POST http://localhost:9000/agents \
-  -F "config=@/path/to/config.yaml" \
-  -F "ttl_seconds=3600"
-```
-
-### 5. Run linters
-
-```bash
-uv run ruff check src/ tests/
-uv run ruff format src/ tests/
-uv run mypy src/golem-control-plane/
-```
+- 🚀 **[Local Deployment Guide](docs/LocalDeployment.md)** — Run the Control Plane standalone with Python and `uv` for development and testing.
+- ☸️ **[Minikube Deployment Guide](docs/MinikubeDeployment.md)** — Deploy the full Kubernetes-native setup with container builds, RBAC, and Secret management inside Minikube.
 
 ---
 
-## Deploy on Minikube
+## API Reference
 
-### Step 1 — Start Minikube
+The complete REST API and WebSocket reference with request/response schemas, payloads, and `curl` examples is available in:
 
-```bash
-minikube start --driver=podman --container-runtime=containerd
-```
-
-### Step 2 — Build and load the Control Plane image
-
-```bash
-./build_images.sh
-./minikube/load_images.sh
-```
-
-### Step 3 — Create the WatsonX credentials secret
-
-```bash
-cp deploy/golem-control-plane/secret.yaml.example deploy/golem-control-plane/secret.yaml
-# Edit secret.yaml and fill in your real credentials — never commit this file
-```
-
-### Step 4 — Deploy
-
-```bash
-./deploy.sh
-```
-
-`deploy.sh` applies all manifests in order and waits for the rollout to complete.
-
-### Step 5 — Port-forward and smoke test
-
-```bash
-# Terminal 1 — keep open
-kubectl -n golem-system port-forward svc/golem-control-plane 9000:9000
-
-# Terminal 2 — smoke tests
-curl -s http://localhost:9000/health
-curl -s http://localhost:9000/agents
-```
+👉 **[API Reference Guide](docs/APIReference.md)**
 
 ---
 
-## API Quick Reference
+## License
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/health` | Liveness check |
-| `POST` | `/agents` | Provision a new agent sandbox |
-| `GET` | `/agents` | List all known sandboxes |
-| `GET` | `/agents/{id}/status` | Get sandbox status |
-| `GET` | `/agents/{id}/card` | Get A2A Agent Card |
-| `DELETE` | `/agents/{id}` | Tear down sandbox |
-
-### Create an agent
-
-`POST /agents` accepts `multipart/form-data` with:
-- `config` — the runner `config.yaml` file (required)
-- `ttl_seconds` — sandbox TTL in seconds (optional, default `3600`)
-
-```bash
-curl -s -X POST http://localhost:9000/agents \
-  -F "config=@/path/to/config.yaml" \
-  -F "ttl_seconds=3600" \
-  | python3 -m json.tool
-```
-
-Use the returned `agent_id` to monitor the sandbox:
-
-```bash
-AGENT_ID=golem-agent-xxxxxxxx
-
-# Watch the pod
-kubectl -n ${AGENT_ID} get pods -w
-
-# Verify the ConfigMap was created with the runner config
-kubectl -n ${AGENT_ID} get configmap runner-config -o jsonpath='{.data.config\.yaml}'
-
-# Poll status
-curl -s http://localhost:9000/agents/${AGENT_ID}/status | python3 -m json.tool
-
-# Chat with the agent (port-forward first)
-kubectl -n ${AGENT_ID} port-forward pod/${AGENT_ID}-runner 8001:8000
-curl -s http://localhost:8001/health
-
-# Delete
-curl -s -X DELETE http://localhost:9000/agents/${AGENT_ID}
-```
+This project is licensed under the MIT License. See [`LICENSE.md`](LICENSE.md) for details.

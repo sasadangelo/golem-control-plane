@@ -1,505 +1,236 @@
 # Golem — Roadmap
 
-## MVP — 5-Week Sprint  `August–September 2026`
-
-The goal of the MVP is a fully working **Agent-as-a-Service platform** running on any Kubernetes cluster (IBM Cloud, AWS, GCP, or a local Kind cluster).
-
-> Items marked **`[new]`** were added after the initial design review to close the two main gaps: agent cooperation and network isolation.
-
----
-
-### Week 3 — Chat Router & CLI  `August W3`
-
-**Goal:** End-to-end streaming communication between user and agent, usable from the terminal immediately.
-
-- [x] WebSocket endpoint: `WS /chat/{agent_id}`
-- [x] Single ClusterIP gateway proxy — no per-pod Ingress
-- [x] Token streaming passthrough from pod to client
-- [x] Single conversation per agent: `WS /chat/{agent_id}` carries one implicit conversation (no `conversation_id` yet)
-- [x] Single conversation state in-memory (one message list per agent, in the Control Plane process — no external dependency)
-- [x] CLI `golem chat --id <agent_id>` — opens the single conversation for that agent
-- [x] **`[new]`** A2A task lifecycle records (`submitted → working → completed / failed`)
-- [x] **`[new]`** Control Plane as A2A broker: `GET /agents/{id}/card`, peer handshake endpoint
-
-**Deliverable:** `golem chat --id <agent_id>` streams responses live from the sandbox pod — usable immediately from the terminal. ✅
+> **Working constraint:** ~1 hour/day with AI assistance (~20 effective hours/month).
+> Each MVP is scoped to fit within that budget — **max ~18 usable hours** per month
+> (accounting for context-switching and review time).
+> The selection criterion for each MVP: *minimum work that unlocks a new wow demo.*
+>
+> **Personal assistant note:** Golem is already usable as a local personal assistant today
+> via `MockProvisioner` (control plane + runner as plain Python processes, no K8s).
+> MVP 2 adds `ProcessProvisioner` (zero deps — just Python, no Docker, no K8s).
+> MVP 4 adds `DockerProvisioner` (`docker compose up` — one command on any machine).
 
 ---
 
-### Week 4 — Agent Identity & Behaviour  `August W4`
+## MVP 1 ✅ Delivered  `August 2026`
 
-**Goal:** Transform the runner from a generic chatbot into a real agent with defined identity and repeatable business-logic protocols.
+The MVP delivered a fully working **Agent-as-a-Service platform** running on Kubernetes.
 
-- [x] `POST /agents` accepts optional `AGENTS.md` upload (`-F "agents_md=@AGENTS.md"`)
-- [x] `POST /agents` accepts one or more `SKILL.md` uploads (`-F "skills=@<name>.md"`) — single `.md` files only at this stage; no scripts, no dependencies
-- [x] Control Plane mounts uploaded files into the pod via ConfigMap: `AGENTS.md` at `/app/AGENTS.md`, each skill at `/app/skills/<name>.md`
-- [x] Runner reads `AGENTS.md` at boot and injects it into the LLM system message as behavioural context (*who the agent is*)
-- [x] Runner indexes available `SKILL.md` files at boot; injects the relevant one lazily per turn (*how to solve a specific class of tasks, step by step, using the available tools*)
-- [x] **`[new]`** `POST /agents` accepts an optional `mcp_servers` list (static URIs); Control Plane stores them in the agent ConfigMap; Runner calls `MultiServerMCPClient` at boot and registers each server's tools into the LangGraph tool node — no registry yet, URI per agent
-
-**Deliverable:** an agent deployed with `AGENTS.md` + `SKILL.md` follows a precise, repeatable business protocol instead of improvising — e.g. "analyse HTTP 500 logs" always produces the same structured output regardless of how the question is phrased.
-
-> **Skill format at this stage:** a skill is a single `SKILL.md` file. No scripts, no dependencies. The folder-based format with scripts is introduced in §2.X.
+| Area | What was delivered |
+|---|---|
+| **Agent Runner** | Python + LangGraph container (WatsonX / `langchain-ibm`); `bash` + `http_check` embedded tools; `AGENTS.md` persona injection; `SKILL.md` declarative skill injection; MCP multi-server client (`MultiServerMCPClient`) |
+| **Control Plane** | FastAPI service; Kubernetes Provisioner (Namespace + Pod + ConfigMap + ResourceQuota + NetworkPolicy per agent); TTL Garbage Collector; WebSocket chat proxy with multi-conversation support (`conversation_id`); auto-titling of conversations |
+| **A2A** | Agent Card (`/.well-known/agent.json`) published at runner boot; push handshake (`POST /agents/{id}/handshake`) + pull fallback; A2A task lifecycle (`submitted → working → completed / failed`); task delegation between agents (`POST /agents/{id}/delegate`) |
+| **Automations** | Background triggers in the runner: Cron, Timer, Webhook |
+| **CLI** | `golem cp *` — multi-context control plane management; `golem agent create/list/delete/status`; `golem agent tasks` / `golem agent task-send`; `golem chat`; `golem conv *` conversation management |
+| **Security** | K8s RBAC (least-privilege ClusterRole); per-sandbox NetworkPolicy (default-deny egress); ResourceQuota per agent; secrets injected via `envFrom` |
 
 ---
 
-### Week 5 — Automations, A2A Delegation & Persistence  `September W1`
+## MVP 2 — Multi-Provider & Personal Assistant Mode  `September 2026`
 
-**Goal:** Background tasks, agent cooperation, polished CLI, multi-conversation support, and optional durable persistence.
+**Goal:** Remove the WatsonX lock-in and enable Golem as a lightweight personal assistant with no cloud dependency.
 
-- [x] Background tasks in Agent Runner: Cron, Timer, Webhook triggers
-- [x] CLI: `golem agent tasks --agent <id>` — show A2A task lifecycle
-- [x] CLI: `golem agent task send --agent <id> --message "..."` — submit a one-shot A2A task from the terminal
-- [x] CLI commands: `golem agent create`, `golem agent list`, `golem agent delete`, `golem agent status`, `golem agent config`
-- [x] CLI commands: `golem cp add`, `golem cp use`, `golem cp list`, `golem cp remove`, `golem cp status` — multi-context control plane management
-- [x] Multi-conversation support: `WS /chat/{agent_id}?conversation_id=<uuid>` — each conversation isolated
-- [x] Conversation state keyed by `(agent_id, conversation_id)` in-memory
-- [x] CLI conversation management:
-  - `golem conv list --agent <id>` — list conversations for an agent
-  - `golem conv new --agent <id> [--name <label>]` — start a new conversation
-  - `golem conv delete --agent <id> <conv_id>` — delete a conversation
-- [x] **`[new]`** A2A `SendMessage` delegation between agents (Supervisor → Log-Analyzer → Report-Writer)
-- [ ] **`[new]`** Signed Agent Card validation in the Card Registry — *deferred to Phase 2 §2.X*
+**Wow demos unlocked:**
+- Deploy a Golem agent on **Ollama** running locally — zero IBM Cloud, zero API key, works offline.
+- Run `golem agent create` on your Mac — no Minikube, no Docker, just Python processes.
 
-**Deliverable:** a multi-agent flow works end-to-end; full conversation management from CLI; platform deployable on any K8s cluster via Helm.
+**Estimated effort: ~17 hours**
 
----
+| Area | Est. hours |
+|---|:---:|
+| Library extraction (`golem-agent-sdk` + `golem-framework`) | 8h |
+| LLM Gateway — WatsonX formalisation | 2h |
+| LLM Gateway — OpenAI-compatible protocol | 3h |
+| LLM Gateway — Ollama native | 2h |
+| `ProcessProvisioner` | 2h |
 
-## Component × Week Delivery Matrix
+### Multi-Provider, Multi-Protocol, Multi-Model
 
-| Component | W1 | W2 | W3 | W4 | W5 |
-|---|:---:|:---:|:---:|:---:|:---:|
-| Agent Runner (Docker + LangGraph) | ✅ | — | — | AGENTS.md + SKILL.md + MCP | ✅ Cron/Timer/Webhook |
-| A2A Agent Card + inbound tasks **`[new]`** | ✅ | — | ✅ Broker | — | SendMsg |
-| Control Plane (FastAPI) | — | ✅ | Chat WS | file upload + ConfigMap | Helm |
-| K8s Provisioner (Python k8s-client) | — | ✅ | — | — | — |
-| NetworkPolicy + TTL GC **`[new]`** | — | ✅ | — | — | — |
-| Single conversation state (in-memory) | — | — | ✅ | — | — |
-| A2A task lifecycle + broker **`[new]`** | — | — | ✅ | — | — |
-| CLI — `golem chat` | — | — | ✅ | — | — |
-| CLI — `cp *` (multi-context control plane) | — | — | — | — | ✅ |
-| CLI — `agent create/list/delete/status/config/card` | — | — | — | — | ✅ |
-| CLI — `agent tasks` / `agent task send` | — | — | — | — | ✅ |
-| Multi-conversation + `golem conv *` CLI | — | — | — | — | [ ] |
-| Persistence (PostgreSQL + Redis) | — | — | — | — | *deferred → §2.2* |
+- [ ] Extract `golem-agent-sdk` — A2A lifecycle, Agent Card, handshake; **no LLM dependency**; importable by non-LLM agents
+- [ ] Extract `golem-framework` — LangGraph agentic loop + LLM Gateway abstraction; `golem-runner` becomes a thin entrypoint that imports both
+- [ ] **LLM Gateway — WatsonX** formalised as a `golem-framework` backend (`provider=watsonx`, `protocol=watsonx`) — behaviour unchanged
+- [ ] **LLM Gateway — OpenAI-compatible** (`protocol=openai`) — any OpenAI-compatible endpoint: public OpenAI, vLLM, LM Studio, Ollama `/v1`
+- [ ] **LLM Gateway — Ollama native** (`provider=ollama`, `protocol=ollama`) — direct Ollama REST API
+- [ ] `config.yaml` `llm.provider` + `llm.protocol` selects the gateway at runner boot; no rebuild required
+
+### `ProcessProvisioner` — Personal Assistant Mode
+
+*The lightest possible way to run Golem: no Docker, no Kubernetes, no containers — just Python.*
+
+- [ ] `create_sandbox` — writes `config.yaml` + `AGENTS.md` + skills to `~/.golem/agents/<id>/`, launches the runner as a background subprocess (`uv run python main.py`) on a free port; returns `SandboxHandle(endpoint=http://localhost:<port>)`
+- [ ] `delete_sandbox` — terminates the subprocess, removes `~/.golem/agents/<id>/`
+- [ ] `get_status` — subprocess alive + `/health` responds → `RUNNING`; otherwise `FAILED`
+- [ ] TTL GC unchanged — calls `delete_sandbox` when TTL expires
+- [ ] `config.yaml`: `control-plane.provisioner: process`, `control-plane.runner_path: /path/to/golem-runner`
 
 ---
 
-## Concrete MVP Use Cases
+## MVP 3 — MCP Registry & Skill Registry  `October 2026`
 
-### 1. Create a custom agent on the fly
+**Goal:** Make MCP servers reusable across agents and introduce versioned skills from Git.
 
-```bash
-golem agent create \
-  --name "Log-Analyzer" \
-  --prompt "Scan application logs for HTTP 500 errors and summarise root causes." \
-  --skills read-logs
-```
+**Wow demos unlocked:**
+- Register the Kubernetes MCP server once — deploy three different SRE agents that all use it without repeating a URI.
+- `golem agent create --skill sre-diagnostics` — no file upload; skill resolved from a Git repo automatically.
 
-The Control Plane creates an isolated K8s Namespace, spawns the Agent Runner pod with the given prompt, and returns the agent ID in seconds.
+**Estimated effort: ~14 hours**
 
----
+| Area | Est. hours |
+|---|:---:|
+| MCP Registry | 6h |
+| Skill Registry | 5h |
+| CLI additions | 3h |
 
-### 2. Chat with the agent in its sandbox
+### MCP Registry
 
-```bash
-golem chat --id log-analyzer-001
-> Analyse the last hour of logs and tell me if my application had any issues.
-```
+- [ ] MCP Registry in Control Plane — register named MCP servers; agents reference them by name instead of raw URI
+- [ ] **Shared** mode — one pod in `golem-mcp-shared` namespace, reusable by all agents; **dedicated** mode — pod co-deployed in the agent namespace
+- [ ] Support **external MCP servers** — servers running outside the cluster registered by name + URI
+- [ ] CLI: `golem mcp add/list/remove`
 
-The agent executes its skills inside the isolated pod, processes the diagnosis, and streams the response back to the terminal. If the pod crashes, all other agents remain unaffected.
+### Skill Registry
 
----
-
-### 3. Run background automated tasks
-
-```bash
-golem agent schedule \
-  --agent log-analyzer-001 \
-  --cron "*/30 * * * *" \
-  --task "health-check /health"
-```
-
-The agent pod continues running autonomously in its sandbox. If the `/health` endpoint fails, it sends a report — no open chat session required.
+- [ ] Skill Registry in Control Plane — register named Git repos as skill sources; resolve skill name → Git folder at agent creation time
+- [ ] Runner: scan `/app/skills/*/SKILL.md` at boot; run `pip install -r requirements.txt` for skills with a `scripts/` directory
+- [ ] CLI: `golem skill source add/list/remove/sync`, `golem skill list/show`
 
 ---
 
-## Post-MVP Milestones
+## MVP 4 — Resilience, Observability & Docker  `November 2026`
 
-### Phase 2 — Post-MVP Essentials
+**Goal:** Survive restarts, make the platform observable, add Docker-based local deployment, and publish release artefacts.
 
-Items are listed in **priority order** — each one makes the platform observable, resilient, or usable by others before adding new capabilities.
+**Wow demos unlocked:**
+- Kill the Control Plane mid-conversation, restart — the conversation continues exactly where it stopped.
+- `docker compose up` on a fresh machine — full Golem running in 2 minutes, no cluster.
+- Open Langfuse, watch every LLM call traced live with token counts and latencies.
 
-#### 2.1 — Observability first: see what is happening inside
+**Estimated effort: ~19 hours**
 
-| Item | Repository | Description |
-|---|---|---|
-| **Observability — Langfuse** | `golem-observability` | Deploy Langfuse as a standalone Docker image in `golem-system`; instrument `golem-framework` LLM Gateway + loop with traces/generations/spans; runner pods emit traces to internal ClusterIP — no internet egress required |
+| Area | Est. hours |
+|---|:---:|
+| Resilience (Redis + PostgreSQL) | 6h |
+| Observability (external Langfuse) | 3h |
+| `DockerProvisioner` + Compose bundle | 4h |
+| Docker Hub CI + Helm Chart | 4h |
+| CLI `--reasoning` flag | 2h |
 
-> **Why first:** LLM Gateway and Graph Plugin add capability. Langfuse tells you whether what you already have is working. Without it you are blind — no visibility into why an agent responded badly, how many tokens it consumed, or where in the graph it got stuck. Required before showing the platform to anyone else.
+### Resilience — Do Not Lose State on Restart
 
-#### 2.2 — Resilience: do not lose state on restart
+- [ ] **LangGraph checkpointer on Redis** — persist graph state at every step; conversations survive pod restarts and TTL expiry
+- [ ] Control Plane persists sandboxes, conversations, and tasks to **PostgreSQL**; survives Control Plane restarts
+- [ ] **External Redis and PostgreSQL** supported — `redis.url` + `postgres.url` in `config.yaml`; absent → fall back to in-memory (MVP 1 behaviour unchanged)
+- [ ] **Conversation rolling summary** — LangGraph summary node condenses history at a configurable token/message threshold; persisted to Redis; prevents context window overflow
 
-| Item | Repository | Description |
-|---|---|---|
-| **LangGraph checkpointer on Redis** | `golem-framework` | Persist graph state at every step to Redis; survive pod restarts, TTL expiry, and human-in-the-loop pauses without losing the conversation |
-| Agent state + message history in Redis | `golem-control-plane` | Control Plane persists known sandboxes and chat history to Redis; survives Control Plane restarts. *Moved from MVP Week 5 — in-memory covers MVP; PostgreSQL persistence deferred here.* |
-| **Conversation rolling summary** | `golem-framework` | When a conversation exceeds a configurable threshold (token count or message count), a LangGraph summary node calls the LLM to produce a condensed summary, replaces older messages with a single `SystemMessage("Summary: …")`, and persists the result to Redis — prevents context window overflow and unbounded memory growth. Requires Redis persistence above. *Moved from MVP Week 5 — conversation history is currently unbounded in-memory (known debt: no cap, no summary; context window overflow is silently truncated by the framework).* |
+### Observability — External Langfuse
 
-#### 2.3 — Multi-provider: choose the model per agent
+- [ ] Instrument `golem-framework` LLM Gateway + agentic loop with Langfuse traces, generations, and spans
+- [ ] Configure via `config.yaml` / `.env`: `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`; absent → runner boots normally with no tracing
+- [ ] Optional in-cluster Langfuse pod (`observability.enabled: true` in Helm values)
 
-| Item | Repository | Description |
-|---|---|---|
-| Extract `golem-agent-sdk` | `golem-agent-sdk` | A2A lifecycle, Agent Card, heartbeat, platform identity — **no LLM dependency** |
-| Extract `golem-framework` | `golem-framework` | Agentic loop abstraction (LangGraph backend) + LLM Gateway |
-| **LLM Gateway — WatsonX** | `golem-framework` | `provider=watsonx`, `protocol=watsonx` — IBM Cloud native SDK |
-| **LLM Gateway — Ollama native** | `golem-framework` | `provider=ollama`, `protocol=ollama` — local Ollama REST API |
-| **LLM Gateway — Ollama OpenAI-compat** | `golem-framework` | `provider=ollama`, `protocol=openai` — Ollama `/v1` endpoint |
-| Thin runner entrypoint | `golem-runner` | Imports `golem-agent-sdk` + `golem-framework`; no embedded logic |
+### `DockerProvisioner` — Personal Assistant Mode
 
-> **LLM Gateway placement rationale:** the gateway lives in `golem-framework`, not `golem-agent-sdk`.
-> `golem-agent-sdk` must remain importable by non-LLM agents (A2A proxies, orchestrators).
-> Swapping the agentic backend (LangGraph → AutoGen) and swapping the LLM backend (WatsonX → Ollama) are both `golem-framework` concerns and should evolve together.
+- [ ] `create_sandbox` — `docker run -d` with a free host port; bind-mounts `~/.golem/agents/<id>/` into the container; returns `SandboxHandle(endpoint=http://localhost:<port>)`
+- [ ] `delete_sandbox` — `docker rm -f`; `get_status` — `docker inspect`
+- [ ] **`docker-compose` bundle** — single `docker-compose.yml` starts the control plane + pre-configured agents; `docker compose up` is the only command needed
+- [ ] `config.yaml`: `control-plane.provisioner: docker`
 
-#### 2.4 — Skill Registry: reusable skills from Git repositories
+### Release Infrastructure & CLI Polish
 
-Skills evolve across three stages — the source changes, but the layout and the Runner behaviour never do:
-
-| Stage | Source | Skill format | Dependency strategy |
-|---|---|---|---|
-| Week 4 | Local file upload (`-F "skills=@<name>.md"`) | Single `SKILL.md` | None — no scripts |
-| Phase 2 §2.4 | Git repository (registered source) | Folder: `SKILL.md` + `scripts/` + `requirements.txt` | `pip install -r requirements.txt` at Runner boot |
-| Phase 3 | Git **or** OCI Registry | Same folder layout | Per-skill virtualenv (`/app/skills/<name>/.venv`) — full isolation |
-
-**Skill folder layout (from Phase 2 onwards):**
-
-```
-<skill-name>/
-├── SKILL.md               # LLM instructions — injected into system message
-├── metadata.yaml          # name, version, description, tags, min_golem_version
-└── scripts/               # optional — executable tools the agent can invoke
-    ├── parse_logs.py
-    └── requirements.txt   # pip dependencies declared here
-```
-
-**Skill repository layout (Git repo):**
-
-```
-agent-skills/              # one Git repo, N skills
-├── skills.index.yaml      # repo manifest — lists all skills with name, version, path
-├── read-logs/
-│   ├── SKILL.md
-│   ├── metadata.yaml
-│   └── scripts/
-│       ├── parse_logs.py
-│       └── requirements.txt
-└── summarize-report/
-    ├── SKILL.md
-    └── metadata.yaml
-```
-
-**`skills.index.yaml` format:**
-
-```yaml
-name: acme-agent-skills
-description: "Skills for log analysis and reporting"
-maintainer: acme-org
-skills:
-  - name: read-logs
-    version: 1.2.0
-    path: read-logs/SKILL.md
-    tags: [observability, logs]
-  - name: summarize-report
-    version: 1.0.3
-    path: summarize-report/SKILL.md
-    tags: [reporting, markdown]
-```
-
-| Item | Repository | Description |
-|---|---|---|
-| **Skill Registry** | `golem-control-plane` | `POST /skills/sources` registers a named Git repo (name, URI, ref); `GET /skills/sources` lists registered sources; `POST /skills/sources/sync` refreshes the local index from all sources; `GET /skills` lists available skills; `POST /agents` accepts `skills: [name]` — Control Plane resolves name → Git repo → fetches folder → mounts as ConfigMap at `/app/skills/<name>/`; CLI: `golem skill source add / list / remove / sync`, `golem skill list / show` |
-| **Runner: folder-aware skill loading** | `golem-runner` | Runner scans `/app/skills/*/SKILL.md` at boot; for each skill with a `scripts/requirements.txt` runs `pip install -r requirements.txt`; indexes skills by name for lazy per-turn injection |
-
-> **Source type abstraction:** the `POST /skills/sources` payload includes a `type` field (`git` \| `oci`). In Phase 2 only `type: git` is implemented. The `OciFetcher` is added in Phase 3 without changing the API or the Runner.
-
-> **Long-term direction → Phase 3:** Skill Marketplace — versioned, signed, public/private catalogue of Git and OCI skill repositories; `golem skill search / install / publish`; per-skill virtualenv isolation; signature verification before the runner mounts any skill.
-
-#### 2.5 — MCP Registry & Deploy: one catalogue, many agents
-
-The MCP feature evolves in three steps across Week 4, §2.5, and Phase 3.
-
-##### Step 1 (Week 4 — done): raw URI per agent
-
-The user passes one or more MCP server URIs directly at `POST /agents`. No registry, no name resolution. The server must already be running and reachable.
-
-##### Step 2 (§2.5 — this section): Registry + Deploy
-
-`POST /mcp-servers` both **registers** the server in the Control Plane registry **and deploys its pod** — the two actions are atomic. Two deploy modes are supported:
-
-| Mode | Pod location | Who can use it | Use case |
-|------|-------------|----------------|----------|
-| **`shared`** | `golem-mcp-shared` namespace (one pod for all agents) | cluster-admin only | Shared utility servers (e.g. `kubernetes`, `github`) — solves the N×M pod problem |
-| **`dedicated`** | same namespace as the agent | any authenticated user | Tenant-isolated servers; pod lifecycle tied to the agent namespace |
-
-Once registered, agents reference servers **by name** — not by URI. The Control Plane resolves names → URIs at `POST /agents` time and writes the concrete URIs into the runner ConfigMap. The Runner never talks to the Registry directly.
-
-**API flow:**
-
-```bash
-# Admin registers + deploys a shared MCP server (cluster-admin only)
-POST /mcp-servers
-{
-  "name": "kubernetes",
-  "image": "ghcr.io/acme/mcp-kubernetes:latest",
-  "port": 8080,
-  "mode": "shared",        # "shared" | "dedicated"
-  "env": { "KUBECONFIG": "/etc/kube/config" }
-}
-# → deploys pod in golem-mcp-shared namespace
-# → registers URI http://kubernetes.golem-mcp-shared.svc:8080/sse
-
-# User registers + deploys a dedicated MCP server (any user)
-POST /mcp-servers
-{
-  "name": "my-git",
-  "image": "ghcr.io/acme/mcp-git:latest",
-  "port": 8080,
-  "mode": "dedicated"
-}
-# → pod deployed in the agent's own namespace at agent create time
-# → registered URI resolved per-agent
-
-# Agent references by name
-POST /agents  →  { "mcp_servers": ["kubernetes", "my-git"] }
-# Control Plane resolves names → URIs → writes to ConfigMap
-```
-
-**Management commands:**
-
-```bash
-golem mcp add   --name kubernetes --image ghcr.io/... --mode shared   # admin
-golem mcp add   --name my-git     --image ghcr.io/... --mode dedicated
-golem mcp list
-golem mcp remove --name my-git
-```
-
-| Item | Repository | Description |
-|---|---|---|
-| **MCP Registry + Deploy** | `golem-control-plane` | `POST /mcp-servers` registers + deploys (shared in `golem-mcp-shared`, dedicated in agent namespace); `GET /mcp-servers` lists; `DELETE /mcp-servers/{name}` removes + tears down pod; RBAC: `mode=shared` requires cluster-admin role |
-| **Name resolution at deploy** | `golem-control-plane` | `POST /agents` resolves `mcp_servers: [name]` → URIs via registry lookup; backward-compatible with Week 4 raw URIs |
-| **MCP default seed** | `golem-control-plane` | Helm Chart post-install Job seeds built-in entries (e.g. `filesystem`, `bash`, `http-check`) from `values.yaml` |
-| **CLI: `golem mcp *`** | `golem-cli` | `golem mcp add / list / remove` — wraps the `POST/GET/DELETE /mcp-servers` endpoints |
-
-> **Why here (after §2.3, before §2.6):** Week 4 made MCP work per-agent with a raw URI. The Registry makes the same server reusable across N agents without repeating the URI. Multi-tenancy (§2.6) will then scope Registry entries per-tenant — the Registry must exist first.
-
-> **Long-term direction → Phase 3:** MCP Marketplace — versioned, signed, public/private catalogue; `golem mcp search / install / publish`; signature verification before the runner mounts any server.
+- [ ] **Container images on Docker Hub** — `golem-control-plane` and `golem-runner` published to `docker.io/` on every release tag via CI
+- [ ] **Helm Chart** — `helm install golem golem/control-plane`; `values.yaml` exposes image tags, credentials, Redis/PostgreSQL URLs, Langfuse config
+- [ ] **CLI `--reasoning` flag** — `golem chat --reasoning {verbose,quiet,compact}`; runner emits a separate `event: reasoning` SSE stream; default `quiet`
 
 ---
 
-#### 2.6 — Programmability: inject custom logic without rebuilding
+## MVP 5 — Programmability & Advanced Agents  `December 2026`
 
-| Item | Repository | Description |
-|---|---|---|
-| **Graph Plugin system** | `golem-framework` | `loop/plugin.py` — loads `build_graph()` from `/app/graph/pipeline.py` at boot; `POST /agents` accepts optional `-F "graph=@pipeline.py"`; Control Plane creates a second ConfigMap `runner-graph`; falls back to built-in ReAct loop if no plugin supplied |
+**Goal:** Let developers inject custom graph logic and unlock deeper reasoning agent types without rebuilding the runner image.
 
-#### 2.7 — Multi-tenancy: open to other users
+**Wow demos unlocked:**
+- Upload a `pipeline.py`, deploy an agent with a completely custom LangGraph — no image rebuild.
+- Ask a deep agent to plan a multi-step investigation; watch it decompose the task, run sub-goals, and return a synthesised report.
 
-Today the Control Plane has no concept of identity. Any caller who knows an `agent_id` can open conversations on that agent, list its tasks, and delete it. This section introduces the minimal ownership model that makes the platform safe to expose to multiple users.
+**Estimated effort: ~15 hours**
 
-**Domain model:**
+| Area | Est. hours |
+|---|:---:|
+| Graph Plugin system | 7h |
+| ReAct + Deep agent loop types | 5h |
+| CLI + docs | 3h |
 
-| Entity | Owned by | Contains | Key fields |
-|---|---|---|---|
-| **Account** | Platform | One or more Agents | `account_id`, `email`, `api_key_hash`, `created_at` |
-| **Agent** | Account | One or more Conversations, zero or more Tasks | `agent_id`, `owner_id` (FK → Account), `mode`, `ttl_seconds` |
-| **Conversation** | Agent (implicit: Account) | Message history | `conversation_id`, `agent_id`, `name`, `created_at` |
+### Programmability — Custom Graph Upload
 
-**Ownership rules:**
+- [ ] `POST /agents` accepts `-F "graph=@pipeline.py"` — Control Plane mounts it as a ConfigMap (`runner-graph`)
+- [ ] Runner loads `build_graph()` from `/app/graph/pipeline.py` at boot; falls back to built-in ReAct loop if absent
+- [ ] CLI: `golem agent create --graph pipeline.py`
 
-- An account can deploy **N agents**; each agent has exactly one `owner_id`.
-- An account can only see and interact with agents it owns — `GET /agents` returns only the caller's agents; cross-account access returns `404 Not Found`.
-- Conversations are scoped to an agent — access control flows automatically: if you cannot reach the agent, you cannot reach its conversations.
-- `mode: shared` agents (§2.10) are an explicit exception: their owner grants wider access, but an owner always exists.
+### ReAct & Deep Agent Types
 
-**API key authentication (lightweight — no full OAuth):**
-
-- `POST /accounts` — create account, receive a plain-text API key (stored as bcrypt hash).
-- Every request carries `Authorization: Bearer <api_key>`; the Control Plane resolves `account_id` from the key and enforces ownership on every resource endpoint.
-- No JWT, no OAuth flow, no third-party IdP required at this stage.
-
-**Domain model changes required:**
-
-- `AgentSpec` and `SandboxHandle` gain an `owner_id: str` field.
-- `GET /agents`, `GET /agents/{id}`, `DELETE /agents/{id}`, `WS /chat/{id}`, `GET /agents/{id}/conversations`, etc. — all enforce `handle.owner_id == caller_account_id`.
-- `Conversation` already carries `agent_id`; no structural change needed — ownership is inherited.
-
-| Item | Repository | Description |
-|---|---|---|
-| **Account domain model** | `golem-control-plane` | `Account` entity: `account_id`, `email`, `api_key_hash`, `created_at`; stored in-memory map for dev, PostgreSQL for prod |
-| **Account CRUD API** | `golem-control-plane` | `POST /accounts` (create + return plain-text key once); `GET /accounts/me` (resolve caller identity) |
-| **API key middleware** | `golem-control-plane` | FastAPI dependency `get_current_account()` — resolves `Authorization: Bearer <key>` to an `Account`; returns `401` if missing/invalid |
-| **`owner_id` on Agent** | `golem-control-plane` | Add `owner_id: str` to `AgentSpec` and `SandboxHandle`; set from `get_current_account()` at `POST /agents`; enforce on all agent-scoped endpoints |
-| **CLI: `golem account` commands** | `golem-cli` | `golem account create --email <e>` — prints API key once; `golem account whoami` — show active identity; API key stored in `~/.golem/config.yaml` per context |
-
-> **Prerequisite for §2.10 and §2.11:** `mode: shared` and the Project model both require a meaningful `owner_id`. This section must be completed first.
-> **No OAuth at this stage:** a simple API key is sufficient to enforce ownership and unblock dependent milestones. OAuth / SSO can replace it in Phase 3 without changing the domain model.
-
-#### 2.8 — Infrastructure
-
-| Item | Repository | Description |
-|---|---|---|
-| **Stateful Sandbox** (`mode: stateful`) | `golem-control-plane` | PVC-backed agent pod for persistent state across sessions; TTL GC disabled; `/workspace` PVC mounted at pod startup; `SandboxMode.STATEFUL` already in domain model — wire `--mode stateful` through CLI → `AgentSpec` → Provisioner |
-| Vault / external secret store | `golem-control-plane` | Replace K8s Secret with External Secrets Operator |
-| gVisor / Kata Containers | infra | Runtime isolation for dynamic code execution |
-| Go CLI binary | `golem-cli` | Distributable without Python runtime |
-| **Provisioner Stage 1** | `golem-control-plane` | `DockerComposeProvisioner` for single-machine dev; `OpenShiftProvisioner` extending `KubernetesProvisioner` |
-
-#### 2.9 — Multi-context CLI (kubectl-style)
-
-| Item | Repository | Description |
-|---|---|---|
-| **Multi-context support** | `golem-cli` | `~/.golem/config.yaml` with named contexts (name, url, token); `golem context list/add/use/delete`; all commands resolve the active context automatically — zero breaking change to existing interface |
-
-#### 2.10 — Sandbox Modes: Stateful & Shared
-
-Golem supports three sandbox deployment modes, selectable via `--mode` at agent creation time.
-The `ephemeral` mode is the MVP default and already implemented.
-This section completes the other two.
-
-| Mode | Pod per user | TTL GC | Persistent storage | Multi-user | Equivalent to |
-|---|:---:|:---:|:---:|:---:|---|
-| **`ephemeral`** *(MVP — done)* | ✅ | ✅ | ❌ | ❌ | One-shot task, diagnostics |
-| **`stateful`** *(§2.8 + this section)* | ✅ | ❌ | ✅ PVC | ❌ | Long-lived personal assistant, code agent |
-| **`shared`** *(this section)* | ❌ one pod, N users | ❌ | optional | ✅ via `conversation_id` | Claude-style project, team helpdesk |
-
-**`mode: stateful` items** (completes §2.8):
-
-| Item | Repository | Description |
-|---|---|---|
-| Wire `--mode stateful` end-to-end | `golem-control-plane` + `golem-cli` | `AgentSpec.mode` already exists; Provisioner must skip TTL annotation and provision a PVC + VolumeMount at `/workspace` when `mode=stateful` |
-| GC loop skips stateful sandboxes | `golem-control-plane` | TTL GC checks `handle.mode`; sandboxes with `mode=stateful` are never garbage-collected automatically |
-
-**`mode: shared` items**:
-
-| Item | Repository | Description |
-|---|---|---|
-| `SandboxMode.SHARED` in domain model | `golem-control-plane` | Add `shared` value to `SandboxMode` enum; `AgentSpec.mode = shared` sets `ttl_seconds=0` (no GC) |
-| Provisioner: no TTL, no PVC for shared | `golem-control-plane` | Shared sandbox is a normal pod with no TTL annotation and no GC; one namespace, one pod, permanently alive until explicitly deleted |
-| GC loop skips shared sandboxes | `golem-control-plane` | Same guard as stateful — `handle.mode == SHARED` → skip |
-| Conversation state keyed by `(agent_id, conversation_id)` | `golem-control-plane` + `golem-runner` | Prerequisite: multi-conversation support (Week 5); shared mode is meaningless without it |
-| CLI: `golem agent create --mode shared` | `golem-cli` | `--mode` option added to `agent create`; default remains `ephemeral` — no breaking change |
-
-> **Prerequisite:** `mode: shared` requires multi-conversation `conversation_id` support (Week 5) to be in place. Deploy order: Week 5 → §2.8 stateful → §2.10 shared.
-
-> **Security note:** without RBAC (§2.7), any user who knows the `agent_id` can join a shared agent's conversations. §2.7 must be completed before exposing shared agents outside a trusted team.
-
-**CLI reference — all three modes:**
-
-```bash
-golem agent create --config config.yaml                   # ephemeral (default) — isolated pod, TTL
-golem agent create --config config.yaml --mode stateful   # stateful — isolated pod, PVC, no TTL
-golem agent create --config config.yaml --mode shared     # shared — one pod, N users, no TTL
-```
+- [ ] `loop: react` in `config.yaml` — default loop formalised as a first-class named type
+- [ ] `loop: deep` — multi-step planning loop: agent decomposes the task into sub-goals, executes each with tools, reflects, and synthesises a final answer
+- [ ] Agent loop type selectable per-agent in `config.yaml`; no runner rebuild required
 
 ---
 
-#### 2.11 — Project Model: Claude Code-style user workspaces
+## MVP 6 — Multi-Tenancy, Cloud & Workspaces  `Q1 2027`
 
-A **Project** is a named workspace owned by a user that groups together agent configuration, skills, and conversations. It builds on multi-tenancy (§2.7) and multi-conversation support (Week 5) and gives users a Claude Code-style interface: one agent, scoped settings, persistent context.
+**Goal:** Open the platform to multiple users, connect to IBM Cloud, and introduce persistent project workspaces.
 
-**Domain model:**
+**Estimated effort: ~22 hours — split across two months if needed.**
 
-| Entity | Owned by | Contains |
-|---|---|---|
-| **User** | Platform | One or more Projects |
-| **Project** | User | `AGENTS.md`, zero or more `SKILL.md` files, one or more Conversations |
-| **Conversation** | Project | Message history, `conversation_id` |
+### Multi-Tenancy
 
-The user connects to a **named agent** (shared or stateful sandbox) and creates Projects on top of it. Each Project brings its own `AGENTS.md` + skills, so the same underlying agent pod can serve different personas for different Projects.
+- [ ] Account domain model — `Account` entity with API key auth (`Authorization: Bearer <key>`); no JWT/OAuth at this stage
+- [ ] Ownership enforcement on all agent-scoped endpoints; `GET /agents` returns only the caller's agents
+- [ ] CLI: `golem account create/whoami`; API key stored per context in `~/.golem/config.yaml`
 
-**Lifecycle:**
+### IBM Cloud Support
 
-```
-POST /projects                      # create project (name, agent_id)
-POST /projects/{id}/agents-md       # upload AGENTS.md for this project
-POST /projects/{id}/skills          # upload one or more SKILL.md files
-GET  /projects/{id}/conversations   # list conversations in this project
-POST /projects/{id}/conversations   # start a new conversation
-WS   /chat/{agent_id}?project_id=<id>&conversation_id=<uuid>  # chat scoped to project
-```
+- [ ] **IBM Cloud Kubernetes Service (IKS) provisioner** — deploy agents on IKS clusters; IBM Cloud IAM authentication for the Control Plane
+- [ ] **IBM Secrets Manager integration** — replace K8s Secrets with IBM Secrets Manager via External Secrets Operator
+- [ ] **IBM Cloud Object Storage (COS) backend** — optional persistent storage for agent workspaces and skill artefacts
 
-**CLI commands:**
+### Multi-Context CLI (kubectl-style)
 
-```bash
-golem project create  --name "my-app" --agent <agent_id>
-golem project list
-golem project delete  <project_id>
-golem project upload  --project <id> --agents-md AGENTS.md
-golem project upload  --project <id> --skill read-logs.md
-golem project conv list   --project <id>
-golem project conv new    --project <id> [--name <label>]
-golem project conv switch --project <id> <conv_id>
-```
+- [ ] Named contexts in `~/.golem/config.yaml` (name, URL, token, account); `golem context list/add/use/delete`; all commands resolve the active context automatically
 
-| Item | Repository | Description |
-|---|---|---|
-| **Project domain model** | `golem-control-plane` | `Project` entity: `id`, `name`, `owner_id`, `agent_id`, `created_at`; stored in PostgreSQL (or in-memory map for dev) |
-| **Project CRUD API** | `golem-control-plane` | `POST/GET/DELETE /projects`; `POST /projects/{id}/agents-md`; `POST /projects/{id}/skills` — files stored as ConfigMaps scoped to `(project_id)`; scoped RBAC: owner can only see their own projects |
-| **Project-scoped conversation routing** | `golem-control-plane` + `golem-runner` | `WS /chat/{agent_id}?project_id=<id>&conversation_id=<uuid>`; Runner selects `AGENTS.md` + skills for the active project before each turn |
-| **CLI: `golem project *`** | `golem-cli` | Full project and project-conversation management commands (see above) |
+### Sandbox Modes: Stateful & Shared
 
-> **Prerequisite:** §2.7 multi-tenancy must be in place so that `owner_id` is a meaningful identity. Week 5 multi-conversation support is also required.
+| Mode | Pod per user | TTL GC | Persistent storage | Multi-user |
+|---|:---:|:---:|:---:|:---:|
+| **`ephemeral`** *(MVP 1 — done)* | ✅ | optional | ❌ | ❌ |
+| **`stateful`** *(this milestone)* | ✅ | ❌ | ✅ PVC | ❌ |
+| **`shared`** *(this milestone)* | ❌ one pod, N users | ❌ | optional | ✅ |
 
-> **Relation to §2.10 shared mode:** the typical deployment pattern is a `mode: shared` agent pod serving as the backend for multiple users, each operating in their own Projects. A `mode: stateful` pod can equally serve as a personal long-lived agent with Projects providing per-task context isolation.
+- [ ] `mode: stateful` — PVC-backed pod (`/workspace`); TTL GC skips stateful sandboxes; `golem agent create --mode stateful`
+- [ ] `mode: shared` — one pod, N users via `conversation_id`; requires multi-tenancy above
+
+### Project Model (Claude Code-style Workspaces)
+
+- [ ] `Project` entity (`id`, `name`, `owner_id`, `agent_id`) with its own `AGENTS.md` + skills + conversations
+- [ ] Chat routing: `WS /chat/{agent_id}?project_id=<id>&conversation_id=<uuid>` — runner selects project-scoped identity and skills per turn
+- [ ] CLI: `golem project create/list/delete`, `golem project upload --agents-md / --skill`, `golem project conv list/new/switch`
 
 ---
 
-#### 2.12 — CLI reasoning progress: show / hide LLM thinking traces
+## Phase 3 — Ecosystem Expansion  `2027`
 
-Modern LLMs expose intermediate reasoning steps (chain-of-thought, thinking tokens). Surfacing or suppressing these in the terminal significantly improves the user experience for both debugging and production use.
+*Items picked up opportunistically — no fixed schedule.*
 
-| Mode | Behaviour | Use case |
-|---|---|---|
-| **`verbose`** (default in dev) | Reasoning steps streamed as collapsible blocks in the terminal | Debugging, skill authoring |
-| **`quiet`** (default in prod) | Only the final answer is printed; reasoning is suppressed | End-user facing demos, CI |
-| **`compact`** | Reasoning printed as a single dim summary line, not streamed | Balanced: aware but not noisy |
-
-**Implementation approach:**
-
-- The Runner emits a new SSE event type `event: reasoning` carrying each thinking token/step separately from `event: token` (the final-answer stream).
-- The CLI reads a `--reasoning {verbose,quiet,compact}` flag (or `GOLEM_REASONING` env var) and filters / formats `reasoning` events accordingly.
-- When the LLM backend does not emit reasoning tokens the flag is silently ignored — no error.
-
-**CLI flags:**
-
-```bash
-golem chat --id <agent_id> --reasoning verbose    # show full thinking trace
-golem chat --id <agent_id> --reasoning quiet      # final answer only (default)
-golem chat --id <agent_id> --reasoning compact    # one-line dim summary
-```
-
-| Item | Repository | Description |
-|---|---|---|
-| **Runner: `reasoning` SSE event** | `golem-runner` | Emit `event: reasoning` / `data: <step>` for each thinking token; final answer continues as `event: token`; no change to existing clients (they ignore unknown event types) |
-| **CLI: `--reasoning` flag** | `golem-cli` | `golem chat` accepts `--reasoning {verbose,quiet,compact}`; fallback to `GOLEM_REASONING` env var; default `quiet` |
-| **CLI renderer — verbose** | `golem-cli` | Reasoning blocks streamed inside a dim, collapsible terminal block (e.g. `▶ Thinking…` prefix, dimmed colour) |
-| **CLI renderer — compact** | `golem-cli` | Buffer all reasoning tokens; print a single dim one-liner on completion before the answer |
-
-> **LLM dependency:** reasoning token emission requires the underlying model to support chain-of-thought output (e.g. WatsonX Granite Instruct, Ollama with `think` flag, OpenAI o-series). For models that do not expose reasoning, the `reasoning` event is never emitted and the flag has no visible effect.
-
----
-
-### Phase 3 — Ecosystem Expansion
-
-| Item | Repository | Description |
-|---|---|---|
-| **Skill Marketplace** | `golem-control-plane` | Versioned, signed, public/private catalogue of Skill repositories (Git and OCI); `golem skill search / install / publish`; semantic versioning + signature verification before the runner mounts any skill; per-skill virtualenv isolation (`/app/skills/<name>/.venv`) — full dependency isolation; builds on the Skill Registry introduced in §2.4 |
-| **MCP Marketplace** | `golem-control-plane` | Versioned, signed, public/private registry of MCP servers; `golem mcp search / install / publish`; semantic versioning + signature verification before the runner mounts any server; builds on the MCP Registry introduced in §2.5 |
-| **OCI Skill source support** | `golem-control-plane` | `type: oci` in `POST /skills/sources`; `OciFetcher` pulls skill bundles from an OCI registry (`oci://registry.example.com/skills/<name>:<version>`); same folder layout as Git-sourced skills; recommended when skills carry heavy script dependencies |
-| `golem-framework` AutoGen backend | `golem-framework` | `loop/autogen.py` — swap LangGraph for AutoGen |
-| `golem-framework` CrewAI backend | `golem-framework` | `loop/crewai.py` — swap LangGraph for CrewAI |
-| **LLM Gateway — OpenAI** | `golem-framework` | `provider=openai`, `protocol=openai` — public OpenAI API or any OpenAI-compat endpoint |
-| Graph plugin code signing | `golem-control-plane` | Sign `pipeline.py` at upload time; runner verifies signature before `exec`; OPA policy validation |
-| Multi-tenant isolation + RBAC | `golem-control-plane` | Per-tenant namespacing and API key scoping |
-| **Provisioner Stage 2 — IAL** | `golem-control-plane` | Infrastructure Profiles (named bundles of backend + quota + NetworkPolicy) selectable via `PROVISIONER_BACKEND` |
-| **Provisioner Stage 3 — Operator** | `golem-operator` | `GolemAgent` CRD + Kubernetes Operator for GitOps-style agent management (coexists with REST API) |
-| Web UI for agent management | `golem-ui` | React dashboard for agent lifecycle and A2A task monitoring |
+| Item | Description |
+|---|---|
+| **Skill Marketplace** | Versioned, signed, public/private catalogue of Git and OCI skill repositories; `golem skill search/install/publish`; per-skill virtualenv isolation |
+| **MCP Marketplace** | Versioned, signed, public/private catalogue of MCP servers; `golem mcp search/install/publish` |
+| **AutoGen backend** | `golem-framework` AutoGen loop — swap LangGraph without changing the runner interface |
+| **CrewAI backend** | `golem-framework` CrewAI loop |
+| **LLM Gateway — Anthropic** | `provider=anthropic`, `protocol=anthropic` |
+| **LLM Gateway — Hugging Face TGI** | `provider=huggingface`, `protocol=openai` |
+| **Kubernetes Operator** | `GolemAgent` CRD + Operator for GitOps-style agent management; coexists with REST API |
+| **OpenShift adapter** | `OpenShiftProvisioner` — Project, Route, Security Context Constraints |
+| **Knative serverless runners** | Scale-to-zero agent execution; event-driven activation |
+| **Web UI** | React dashboard for agent lifecycle, A2A task monitoring, and conversation management |
+| **Signed A2A Agent Cards** | Cryptographic signature verification in the Card Registry (A2A v1.0 signing spec) |
+| **gVisor / Kata Containers** | Runtime isolation for dynamic code execution sandboxes |
+| **Graph plugin code signing** | Sign `pipeline.py` at upload; runner verifies before `exec`; OPA policy validation |

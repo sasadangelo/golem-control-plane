@@ -21,7 +21,10 @@ class AgentSpec(BaseModel):
 
     agent_id: str = Field(description="Agent identifier from config.yaml — used as namespace and pod name prefix.")
     mode: SandboxMode = Field(default=SandboxMode.EPHEMERAL, description="Sandbox lifecycle mode.")
-    ttl_seconds: int = Field(default=3600, description="Idle TTL before the sandbox is garbage-collected.")
+    ttl_seconds: int | None = Field(
+        default=None,
+        description="Idle TTL in seconds before the sandbox is garbage-collected. None means the sandbox never expires.",
+    )
     runner_config: str = Field(default="", description="Raw runner config.yaml content to mount in the pod.")
     agents_md: str | None = Field(
         default=None,
@@ -51,7 +54,7 @@ class SandboxHandle(BaseModel):
     namespace: str = ""
     pod_name: str = ""
     status: SandboxStatus = SandboxStatus.PENDING
-    ttl_seconds: int = 3600
+    ttl_seconds: int | None = None
     agent_card: dict | None = None
 
     def model_post_init(self, __context: object, /) -> None:
