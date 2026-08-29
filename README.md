@@ -158,6 +158,14 @@ The complete REST API and WebSocket reference with request/response schemas, pay
 
 ---
 
+## Golem vs Other Agent Platforms
+
+* [Golem vs Claude](docs/GolemVsClaude.md)
+* [Golem vs Paver](docs/GolemVsPaver.md)
+* [Golem vs OpenClaw](docs/GolemVsOpenClaw.md)
+
+---
+
 ## License
 
 This project is licensed under the MIT License. See [`LICENSE.md`](LICENSE.md) for details.
