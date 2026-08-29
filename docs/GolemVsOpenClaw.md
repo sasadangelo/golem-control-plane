@@ -110,25 +110,29 @@
 
 ## 5. Messaging Channels
 
+> **Note:** OpenClaw channels (Telegram, WhatsApp, Slack, etc.) are **native TypeScript Gateway plugins** — not MCP servers. They ship either bundled with core or as official plugins installable via `openclaw plugins install @openclaw/<id>`. MCP is a separate mechanism used to connect external tool servers to agents.
+
 | Feature | Golem | OpenClaw |
 |---|:---:|:---:|
-| WebSocket chat (CLI / API clients) | ✅ | ✅ |
-| Web Control UI | 🔜 Phase 3 | ✅ |
-| Telegram | ❌ | ✅ |
-| WhatsApp | ❌ | ✅ |
-| Slack | ❌ | ✅ |
-| Discord | ❌ | ✅ |
-| iMessage | ❌ | ✅ |
-| Signal | ❌ | ✅ |
-| Google Chat | ❌ | ✅ |
-| Microsoft Teams | ❌ | ✅ |
-| Matrix | ❌ | ✅ |
-| IRC | ❌ | ✅ |
-| SMS | ❌ | ✅ |
-| Mattermost | ❌ | ✅ |
-| WeChat / WeCom | ❌ | ✅ |
-| Twitch | ❌ | ✅ |
-| A2A channel (external agent interop) | ✅ | ✅ |
+| WebSocket chat (CLI / API clients) | ✅ | ✅ (WebChat, bundled) |
+| Web Control UI | 🔜 Phase 3 | ✅ (bundled) |
+| Telegram | ❌ | ✅ (bundled plugin) |
+| WhatsApp | ❌ | ✅ (official plugin) |
+| Slack | ❌ | ✅ (official plugin) |
+| Discord | ❌ | ✅ (official plugin) |
+| iMessage | ❌ | ✅ (official plugin) |
+| Signal | ❌ | ✅ (official plugin) |
+| Google Chat | ❌ | ✅ (official plugin) |
+| Microsoft Teams | ❌ | ✅ (official plugin) |
+| Matrix | ❌ | ✅ (official plugin) |
+| IRC | ❌ | ✅ (official plugin) |
+| SMS (Twilio) | ❌ | ✅ (official plugin) |
+| Mattermost | ❌ | ✅ (official plugin) |
+| WeChat / WeCom | ❌ | ✅ (external plugin) |
+| Twitch | ❌ | ✅ (official plugin) |
+| LINE | ❌ | ✅ (official plugin) |
+| Nostr | ❌ | ✅ (official plugin) |
+| A2A channel (external agent interop) | ✅ (bundled) | ✅ (bundled plugin) |
 
 ---
 

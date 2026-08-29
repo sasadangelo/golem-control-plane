@@ -68,18 +68,20 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 
 ## MVP 3 — MCP Registry & Skill Registry  `October 2026`
 
-**Goal:** Make MCP servers reusable across agents and introduce versioned skills from Git.
+**Goal:** Make MCP servers reusable across agents and introduce versioned skills from Git. Introduce a richer `config.yaml` as the single manifest for an agent.
 
 **Wow demos unlocked:**
 - Register the Kubernetes MCP server once — deploy three different SRE agents that all use it without repeating a URI.
 - `golem agent create --skill sre-diagnostics` — no file upload; skill resolved from a Git repo automatically.
+- One `config.yaml` file fully describes an agent — identity, skills, MCP servers, triggers — no separate uploads needed.
 
-**Estimated effort: ~14 hours**
+**Estimated effort: ~16 hours**
 
 | Area | Est. hours |
 |---|:---:|
 | MCP Registry | 6h |
 | Skill Registry | 5h |
+| Rich `config.yaml` manifest | 2h |
 | CLI additions | 3h |
 
 ### MCP Registry
@@ -94,6 +96,16 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 - [ ] Skill Registry in Control Plane — register named Git repos as skill sources; resolve skill name → Git folder at agent creation time
 - [ ] Runner: scan `/app/skills/*/SKILL.md` at boot; run `pip install -r requirements.txt` for skills with a `scripts/` directory
 - [ ] CLI: `golem skill source add/list/remove/sync`, `golem skill list/show`
+
+### Rich `config.yaml` — Agent Manifest
+
+*`config.yaml` becomes the single source of truth for an agent. No more separate multipart uploads.*
+
+- [ ] `agent.identity` field — path to `AGENTS.md` relative to `config.yaml`; replaces inline `system_prompt` (backward-compatible: `system_prompt` still accepted if `identity` is absent)
+- [ ] `agent.skills` as a structured list — built-in names (`bash`, `http_check`), local paths (`path: ./skills/k8s.md`), and registry references (`source: acme/sre@v1.2`); replaces flat `enabled_skills` string (backward-compatible)
+- [ ] `agent.mcp` entries accept both raw `url:` (existing) and named registry reference `name:` (new); Control Plane resolves names to URIs at provision time
+- [ ] Control Plane: when `POST /agents` receives only `config.yaml`, resolve `identity` and `skills` paths relative to the uploaded file; no `agents_md` or `skills` multipart fields required
+- [ ] CLI: `golem agent create --config agent/config.yaml` resolves and uploads all referenced files automatically
 
 ---
 
@@ -146,18 +158,20 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 
 ## MVP 5 — Programmability & Advanced Agents  `December 2026`
 
-**Goal:** Let developers inject custom graph logic and unlock deeper reasoning agent types without rebuilding the runner image.
+**Goal:** Let developers inject custom graph logic, lightweight hooks, and unlock deeper reasoning agent types without rebuilding the runner image.
 
 **Wow demos unlocked:**
 - Upload a `pipeline.py`, deploy an agent with a completely custom LangGraph — no image rebuild.
 - Ask a deep agent to plan a multi-step investigation; watch it decompose the task, run sub-goals, and return a synthesised report.
+- Mount a `guardrail.py` hook — every LLM response is filtered before being returned, zero runner changes.
 
-**Estimated effort: ~15 hours**
+**Estimated effort: ~18 hours**
 
 | Area | Est. hours |
 |---|:---:|
 | Graph Plugin system | 7h |
 | ReAct + Deep agent loop types | 5h |
+| Graph Hooks / Middleware | 3h |
 | CLI + docs | 3h |
 
 ### Programmability — Custom Graph Upload
@@ -172,9 +186,87 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 - [ ] `loop: deep` — multi-step planning loop: agent decomposes the task into sub-goals, executes each with tools, reflects, and synthesises a final answer
 - [ ] Agent loop type selectable per-agent in `config.yaml`; no runner rebuild required
 
+### Graph Hooks — Lightweight Runtime Extension
+
+*Surgical extension points on the built-in ReAct loop. Add state, guardrails, or context injection without writing a full `pipeline.py`.*
+
+- [ ] Runner exposes hook points in the LangGraph graph: `before_agent`, `after_agent`, `before_tools`, `after_tools`, `on_final_answer`
+- [ ] Hook files (`hooks/*.py`) mounted via ConfigMap alongside skills; each file must define a function matching the hook point name and receiving/returning the agent state
+- [ ] `config.yaml` `agent.hooks` list — paths to hook files; loaded and wired into the graph at runner boot; absent → no-op, existing behaviour unchanged
+- [ ] CLI: `golem agent create --hook ./hooks/guardrail.py`; Control Plane mounts each hook file as a separate ConfigMap entry
+- [ ] Hook custom state fields merged into the base `AgentState` TypedDict at boot; hooks can read and write custom fields across turns
+
 ---
 
 ## MVP 6 — Multi-Tenancy, Cloud & Workspaces  `Q1 2027`
+
+**Goal:** Turn Golem into a personal assistant reachable from the messaging apps you already use — without adding new infrastructure components. The existing Control Plane acts as the channel gateway.
+
+**Wow demos unlocked:**
+- Send a Telegram message to your Golem agent — get a full LLM response back in the chat.
+- Ask your Slack bot to run a Kubernetes diagnostic — the SRE agent replies in the thread.
+- One agent, multiple channels, same conversation history.
+
+**Estimated effort: ~16 hours**
+
+| Area | Est. hours |
+|---|:---:|
+| Channel Adapter framework in Control Plane | 4h |
+| Telegram adapter | 3h |
+| Slack adapter | 3h |
+| WhatsApp adapter (Business API) | 4h |
+| CLI + docs | 2h |
+
+### Channel Adapter Framework
+
+*Channels are inbound webhooks + outbound API calls wired into the existing WebSocket proxy. No new components.*
+
+- [ ] `POST /channels/{channel}/{agent_id}` endpoint family in Control Plane — receives webhook payloads from messaging platforms
+- [ ] Channel Adapter interface: `parse_inbound(payload) → (text, user_id, chat_id)` + `send_outbound(chat_id, text, token)`
+- [ ] Stable `conversation_id` derived from channel + `chat_id` — same user always resumes the same conversation
+- [ ] Control Plane routes inbound message to the runner via the existing WebSocket proxy; collects the streamed response and calls `send_outbound`
+- [ ] `config.yaml` `agent.channels` section — declares which channels are active and injects credentials from `env_secrets`
+
+```yaml
+# config.yaml example
+agent:
+  channels:
+    - type: telegram
+      token: "${TELEGRAM_BOT_TOKEN}"
+    - type: slack
+      token: "${SLACK_BOT_TOKEN}"
+      signing_secret: "${SLACK_SIGNING_SECRET}"
+    - type: whatsapp
+      token: "${WHATSAPP_TOKEN}"
+      phone_number_id: "${WHATSAPP_PHONE_NUMBER_ID}"
+```
+
+### Telegram Adapter
+
+- [ ] Verify Telegram webhook signature; parse `Update.message.text` and `chat.id`
+- [ ] Register webhook URL via Telegram Bot API at Control Plane startup when `channels.telegram` is configured
+- [ ] Send response via `POST https://api.telegram.org/bot<token>/sendMessage`; split messages exceeding 4096 chars
+
+### Slack Adapter
+
+- [ ] Verify Slack request signature (`X-Slack-Signature`); handle `url_verification` challenge
+- [ ] Parse `event.text` and `event.channel` from Events API payload; ignore bot messages to prevent loops
+- [ ] Post response via `chat.postMessage` with `thread_ts` to reply in-thread
+
+### WhatsApp Adapter
+
+- [ ] Verify webhook with `hub.verify_token` challenge (Meta platform)
+- [ ] Parse `messages[0].text.body` and `from` (sender phone number) from Cloud API payload
+- [ ] Send response via `POST https://graph.facebook.com/v18.0/{phone_number_id}/messages`
+
+### CLI
+
+- [ ] `golem agent channels` — list active channel adapters for a running agent
+- [ ] Docs: channel setup guide per adapter (bot token, webhook URL registration)
+
+---
+
+## MVP 7 — Messaging Channels  `Q2 2027`
 
 **Goal:** Open the platform to multiple users, connect to IBM Cloud, and introduce persistent project workspaces.
 
