@@ -19,3 +19,6 @@ __pycache__/
 deploy/**/secret.yaml
 
 logs/
+
+# Internal / non-GA documents — never publish
+docs/GolemVsPaver.md
