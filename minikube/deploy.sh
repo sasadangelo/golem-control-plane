@@ -12,7 +12,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MANIFESTS_DIR="${SCRIPT_DIR}/deploy/golem-control-plane"
+MANIFESTS_DIR="${SCRIPT_DIR}/../deploy/golem-control-plane"
 
 echo "==> Deploying Golem Control Plane to context: $(kubectl config current-context)"
 
@@ -32,3 +32,7 @@ kubectl -n golem-system rollout status deployment/golem-control-plane
 echo ""
 echo "==> Done. Pod status:"
 kubectl -n golem-system get pods
+
+echo ""
+echo "==> To access the service, run in a separate terminal:"
+echo "    kubectl -n golem-system port-forward svc/golem-control-plane 9000:9000"

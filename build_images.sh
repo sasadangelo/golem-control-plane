@@ -9,14 +9,14 @@
 #   ./build_images.sh [TAG]
 #
 # Examples:
-#   ./build_images.sh          # builds localhost/golem-control-plane:v1
-#   ./build_images.sh v2       # builds localhost/golem-control-plane:v2
+#   ./build_images.sh          # builds localhost/golem-control-plane:v0.0.1
+#   ./build_images.sh v0.0.2   # builds localhost/golem-control-plane:v0.0.2
 # -----------------------------------------------------------------------------
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TAG="${1:-v1}"
+TAG="${1:-v0.0.1}"
 IMAGE="localhost/golem-control-plane:${TAG}"
 
 echo "==> Building ${IMAGE}"

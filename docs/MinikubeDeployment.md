@@ -35,7 +35,7 @@ kubectl cluster-info
 Build the Control Plane container image locally and load it into the Minikube environment:
 
 ```bash
-# Build the localhost/golem-control-plane:v1 image
+# Build the localhost/golem-control-plane:v0.0.1 image
 ./build_images.sh
 
 # Load the image into Minikube

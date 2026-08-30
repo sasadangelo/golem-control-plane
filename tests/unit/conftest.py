@@ -48,7 +48,7 @@ _k8s_config.ConfigException = Exception  # type: ignore[attr-defined]
 # ---------------------------------------------------------------------------
 _mock_settings: MagicMock = MagicMock()
 _mock_settings.control_plane.gc_interval = 60
-_mock_settings.control_plane.runner_image = "localhost/golem-runner:v1"
+_mock_settings.control_plane.runner_image = "localhost/golem-runner:v0.0.1"
 _mock_settings.llm.api_key = ""
 _mock_settings.llm.url = "https://us-south.ml.cloud.ibm.com"
 _mock_settings.llm.project_id = ""

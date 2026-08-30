@@ -34,7 +34,7 @@ class ControlPlaneConfig(BaseSettings):
     workers: int = Field(default=1, description="Number of uvicorn worker processes.")
     gc_interval: int = Field(default=60, description="TTL garbage-collector polling interval in seconds.")
     runner_image: str = Field(
-        default="localhost/golem-runner:v1", description="Docker image used for agent runner pods."
+        default="localhost/golem-runner:v0.0.1", description="Docker image used for agent runner pods."
     )
 
 

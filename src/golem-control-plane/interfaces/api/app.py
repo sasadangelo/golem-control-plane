@@ -78,10 +78,32 @@ async def _gc_loop() -> None:
     """
     Background coroutine that runs every GC_INTERVAL_SECONDS.
 
-    Scans all sandboxes and deletes those whose age exceeds their TTL.
+    Scans all sandboxes and:
+    - Refreshes the status of PENDING sandboxes so that pods that have reached
+      Running are reflected in memory without waiting for an explicit
+      GET /agents/{id}/status call or a runner handshake push.
+    - Deletes sandboxes whose age exceeds their TTL.
     """
     while True:
         await asyncio.sleep(GC_INTERVAL_SECONDS)
+        loop: AbstractEventLoop = asyncio.get_event_loop()
+
+        # Refresh PENDING sandboxes so the chat proxy unblocks as soon as the
+        # pod reaches Running — even when the runner has no cp_url configured
+        # and therefore never sends a handshake push.
+        for agent_id, handle in list(_sandboxes.items()):
+            if handle.status == SandboxStatus.PENDING:
+                try:
+                    refreshed = await loop.run_in_executor(None, provisioner.get_status, handle)
+                    _sandboxes[agent_id] = refreshed
+                    if refreshed.status == SandboxStatus.RUNNING and not card_registry.get_card(agent_id):
+                        if refreshed.agent_card:
+                            card_registry.register_card(agent_id=agent_id, card=refreshed.agent_card)
+                        else:
+                            card_registry.fetch_and_register(refreshed)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"GC could not refresh status for agent {agent_id}: {e}")
+
         now = time.time()
         expired: list[str] = [
             agent_id
@@ -89,7 +111,7 @@ async def _gc_loop() -> None:
             if handle.ttl_seconds is not None and now - _created_at.get(agent_id, now) > handle.ttl_seconds
         ]
         for agent_id in expired:
-            handle: SandboxHandle = _sandboxes[agent_id]
+            handle = _sandboxes[agent_id]
             logger.info(f"TTL expired for agent {agent_id} — deleting sandbox")
             try:
                 provisioner.delete_sandbox(handle)
@@ -330,6 +352,7 @@ async def agent_handshake(agent_id: str, body: HandshakeRequest) -> HandshakeRes
 
     card_registry.register_card(agent_id=agent_id, card=body.card)
     _sandboxes[agent_id].agent_card = body.card
+    _sandboxes[agent_id].status = SandboxStatus.RUNNING
     logger.info(f"Handshake completed for agent {agent_id}")
 
     return HandshakeResponse(registered=True, agent_id=agent_id)

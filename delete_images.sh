@@ -9,13 +9,13 @@
 #   ./delete_images.sh [TAG]
 #
 # Examples:
-#   ./delete_images.sh        # deletes localhost/golem-control-plane:v1
-#   ./delete_images.sh v2     # deletes localhost/golem-control-plane:v2
+#   ./delete_images.sh            # deletes localhost/golem-control-plane:v0.0.1
+#   ./delete_images.sh v0.0.2     # deletes localhost/golem-control-plane:v0.0.2
 # -----------------------------------------------------------------------------
 
 set -euo pipefail
 
-TAG="${1:-v1}"
+TAG="${1:-v0.0.1}"
 IMAGE="localhost/golem-control-plane:${TAG}"
 
 echo "==> Deleting local Podman/Docker image: ${IMAGE}"

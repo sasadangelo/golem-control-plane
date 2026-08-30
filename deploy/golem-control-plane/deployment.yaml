@@ -19,7 +19,7 @@ spec:
       serviceAccountName: golem-control-plane
       containers:
         - name: control-plane
-          image: localhost/golem-control-plane:v1
+          image: localhost/golem-control-plane:v0.0.1
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 9000

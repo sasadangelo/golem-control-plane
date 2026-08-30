@@ -3,7 +3,7 @@ control-plane:
   port: 9000
   workers: 1
   gc_interval: 60
-  runner_image: "localhost/golem-runner:v1"
+  runner_image: "localhost/golem-runner:v0.0.1"
 
 llm:
   provider: "watsonx"
