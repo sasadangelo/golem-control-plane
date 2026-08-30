@@ -161,7 +161,6 @@ The complete REST API and WebSocket reference with request/response schemas, pay
 ## Golem vs Other Agent Platforms
 
 * [Golem vs Claude](docs/GolemVsClaude.md)
-* [Golem vs Paver](docs/GolemVsPaver.md)
 * [Golem vs OpenClaw](docs/GolemVsOpenClaw.md)
 
 ---
