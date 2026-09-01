@@ -1,7 +1,7 @@
 # Golem — Roadmap
 
 > **Working constraint:** ~1 hour/day with AI assistance (~20 effective hours/month).
-> Each MVP is scoped to fit within that budget — **max ~18 usable hours** per month
+> Each MVP is scoped to fit within that budget — **max ~20 usable hours** per month
 > (accounting for context-switching and review time).
 > The selection criterion for each MVP: *minimum work that unlocks a new wow demo.*
 >
@@ -118,11 +118,12 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 - `docker compose up` on a fresh machine — full Golem running in 2 minutes, no cluster.
 - Open Langfuse, watch every LLM call traced live with token counts and latencies.
 
-**Estimated effort: ~19 hours**
+**Estimated effort: ~21 hours**
 
 | Area | Est. hours |
 |---|:---:|
 | Resilience (Redis + PostgreSQL) | 6h |
+| Conversation metadata | 2h |
 | Observability (external Langfuse) | 3h |
 | `DockerProvisioner` + Compose bundle | 4h |
 | Docker Hub CI + Helm Chart | 4h |
@@ -134,6 +135,8 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 - [ ] Control Plane persists sandboxes, conversations, and tasks to **PostgreSQL**; survives Control Plane restarts
 - [ ] **External Redis and PostgreSQL** supported — `redis.url` + `postgres.url` in `config.yaml`; absent → fall back to in-memory (MVP 1 behaviour unchanged)
 - [ ] **Conversation rolling summary** — LangGraph summary node condenses history at a configurable token/message threshold; persisted to Redis; prevents context window overflow
+- [ ] **Conversation metadata** — PostgreSQL stores per-conversation counters: message count, turn count, total input/output tokens, agent ID; updated at every turn; exposed via `GET /conversations/{id}` and `GET /agents/{id}/conversations`
+- [ ] CLI: `golem conv list` shows message count, turn count, and token totals per conversation; `golem conv show <id>` displays full metadata
 
 ### Observability — External Langfuse
 
@@ -198,16 +201,16 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 
 ---
 
-## MVP 6 — Multi-Tenancy, Cloud & Workspaces  `Q1 2027`
+## MVP 6 — Multi-Tenancy, Cloud & Workspaces  `January 2027`
 
-**Goal:** Turn Golem into a personal assistant reachable from the messaging apps you already use — without adding new infrastructure components. The existing Control Plane acts as the channel gateway.
+**Goal:** Turn Golem into a personal assistant reachable from the messaging apps you already use — without adding new infrastructure components. The existing Control Plane acts as the channel gateway. Also adds interactive shell access to running sandboxes for debugging.
 
 **Wow demos unlocked:**
 - Send a Telegram message to your Golem agent — get a full LLM response back in the chat.
 - Ask your Slack bot to run a Kubernetes diagnostic — the SRE agent replies in the thread.
 - One agent, multiple channels, same conversation history.
 
-**Estimated effort: ~16 hours**
+**Estimated effort: ~19 hours**
 
 | Area | Est. hours |
 |---|:---:|
@@ -216,6 +219,7 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 | Slack adapter | 3h |
 | WhatsApp adapter (Business API) | 4h |
 | CLI + docs | 2h |
+| `golem shell` — interactive shell on runner | 3h |
 
 ### Channel Adapter Framework
 
@@ -264,9 +268,87 @@ agent:
 - [ ] `golem agent channels` — list active channel adapters for a running agent
 - [ ] Docs: channel setup guide per adapter (bot token, webhook URL registration)
 
+### `golem shell` — Interactive Shell on a Runner Sandbox *(low priority)*
+
+- [ ] Control Plane exposes `WS /agents/{id}/shell` — upgrades the connection to a bidirectional terminal stream; proxies stdin/stdout/stderr to the underlying sandbox
+- [ ] `KubernetesProvisioner` dispatch — wraps `kubectl exec -it` into the agent pod's container
+- [ ] `ProcessProvisioner` dispatch — attaches to a sub-shell inside the runner's working directory
+- [ ] `DockerProvisioner` dispatch — wraps `docker exec -it` into the agent container
+- [ ] CLI: `golem shell <agent-id>` — opens a WebSocket to `/agents/{id}/shell`, allocates a local PTY, and streams it to the terminal; supports `--cp <context>` like all other commands
+- [ ] Graceful teardown: `exit` or `Ctrl-D` closes the WebSocket and restores the local terminal state
+
 ---
 
-## MVP 7 — Messaging Channels  `Q2 2027`
+## MVP 7 — Interactive CLI (`golem chat`)  `February 2027`
+
+**Goal:** Elevate `golem chat` from a thin WebSocket wrapper into a full interactive REPL — slash commands, conversation history browsing, agent switching, and live MCP configuration — all without leaving the terminal.
+
+**Wow demos unlocked:**
+- Type `/agent list` inside a running chat session and switch agents without re-typing a `golem agent` command.
+- Browse the last 20 conversations with `/history`, pick one by number, and resume it instantly.
+- Add a new MCP server on the fly with `/configure-mcp add` and watch the agent pick it up without a restart.
+
+**Estimated effort: ~18 hours**
+
+| Area | Est. hours |
+|---|:---:|
+| REPL loop + input/output engine | 4h |
+| `/agent` command | 2h |
+| `/conversation` command | 2h |
+| `/configure-mcp` command | 3h |
+| `/history` command | 2h |
+| `/help`, `/exit`, UX polish | 2h |
+| Tests + docs | 3h |
+
+### REPL Engine
+
+*`golem chat` enters an interactive prompt loop; lines starting with `/` are dispatched as commands; all other input is forwarded to the agent as a regular message.*
+
+- [ ] Readline-based prompt with `↑/↓` history, `Tab` completion of slash command names, and `Ctrl-C` / `Ctrl-D` graceful exit
+- [ ] Command registry: a simple mapping of command name → handler; unknown commands print a friendly hint
+- [ ] Multi-line input support: trailing `\` continues the message on the next line; empty line at prompt sends accumulated input
+- [ ] Streaming responses rendered incrementally (current SSE behaviour preserved); progress indicator shown while waiting for the first token
+- [ ] Session context object passed to every handler — holds active `agent_id`, `conversation_id`, active context, and MCP state
+
+### `/agent` — Agent Management Inside Chat
+
+- [ ] `/agent list` — prints a numbered list of all running agents in the active context; highlights the one currently in use
+- [ ] `/agent switch <id|number>` — switches the current session to a different running agent; creates a new `conversation_id` for the new agent
+- [ ] `/agent status` — shows health, uptime, provisioner, and LLM model of the active agent
+- [ ] `/agent create <config>` and `/agent delete <id>` — thin wrappers around the REST API callable without leaving the chat session
+
+### `/conversation` — Conversation Lifecycle
+
+- [ ] `/conversation list` — lists conversations for the active agent (id, title, message count, last active)
+- [ ] `/conversation new [title]` — creates a fresh `conversation_id` and switches to it; optional inline title
+- [ ] `/conversation switch <id|number>` — resumes an existing conversation; subsequent messages go to the selected conversation
+- [ ] `/conversation rename <title>` — sets a human-readable title on the active conversation
+- [ ] `/conversation delete <id>` — deletes a conversation after a `y/N` confirmation prompt
+
+### `/history` — Conversation History Browser
+
+- [ ] `/history` with no arguments — renders the last 20 messages of the active conversation inline, oldest first, with role labels (`you:` / `agent:`) and timestamps
+- [ ] `/history <n>` — renders the last `n` messages (capped at 100)
+- [ ] `/history search <query>` — full-text search across messages of the active conversation; prints matching excerpts with surrounding context
+- [ ] `/history export [file]` — dumps the full conversation to a Markdown file; defaults to `./conv-<id>.md` in the current directory
+
+### `/configure-mcp` — Live MCP Server Management
+
+- [ ] `/configure-mcp list` — shows all MCP servers currently wired into the active agent (name, transport, status)
+- [ ] `/configure-mcp add <name> <url>` — registers a new MCP server in the Control Plane registry and hot-reloads it into the active runner without restart (runner exposes `POST /mcp/reload`)
+- [ ] `/configure-mcp remove <name>` — deregisters an MCP server and removes it from the active runner
+- [ ] `/configure-mcp test <name>` — sends a `tools/list` ping to the named server and prints available tools; helps verify connectivity before use
+
+### `/help` and UX Polish
+
+- [ ] `/help` — prints a compact table of all commands with a one-line description; `/help <command>` shows detailed usage for that command
+- [ ] `/exit` (alias `/quit`) — cleanly closes the WebSocket and returns to the shell; identical to `Ctrl-D`
+- [ ] Coloured output: user prompt in one colour, agent response in another, system messages in muted grey — respects `NO_COLOR` env var
+- [ ] `--no-interactive` flag on `golem chat` — non-interactive mode (current behaviour); pipe-friendly; disables all slash commands and REPL prompt
+
+---
+
+## MVP 8 — Messaging Channels  `March 2027`
 
 **Goal:** Open the platform to multiple users, connect to IBM Cloud, and introduce persistent project workspaces.
 
@@ -324,5 +406,55 @@ agent:
 | **Knative serverless runners** | Scale-to-zero agent execution; event-driven activation |
 | **Web UI** | React dashboard for agent lifecycle, A2A task monitoring, and conversation management |
 | **Signed A2A Agent Cards** | Cryptographic signature verification in the Card Registry (A2A v1.0 signing spec) |
-| **gVisor / Kata Containers** | Runtime isolation for dynamic code execution sandboxes |
 | **Graph plugin code signing** | Sign `pipeline.py` at upload; runner verifies before `exec`; OPA policy validation |
+
+---
+
+## Phase 4 — Enterprise Grade & Ephemeral Execution  `2028+`
+
+*The evolution from personal assistant to enterprise-grade "internal Claude" platform. No fixed schedule — items are picked up as Golem reaches the scale that justifies them.*
+
+### Core architectural shift: Execution Units
+
+Today one agent = one long-lived pod. At enterprise scale the model inverts: the agent becomes a **template** (skills, prompt, config) and execution happens in **ephemeral units** created on-demand per session and destroyed after.
+
+```
+Today:   Agent → Pod (always-on) → N conversations inside
+Future:  Agent → Definition only → N Execution Units (one per session, ephemeral)
+```
+
+Two invariants to preserve from now to avoid a full rewrite later:
+- `agent_id` is never the pod name — keep an explicit `agent_id → execution_handle` mapping (already true today)
+- The `Provisioner` is the only place that knows how sandboxes are implemented — nothing else in Golem makes pod/process/container assumptions (already true today)
+
+### Execution Unit Provisioners
+
+| Provisioner | Technology | Startup | Isolation | Target scale |
+|---|---|:---:|---|---|
+| `KubernetesProvisioner` *(today)* | Pod per agent | ~10-30s | Medium (shared kernel) | Personal / small team |
+| `gVisorProvisioner` | K8s + gVisor runtime | ~2-5s | High (intercepted syscalls) | Team / SME |
+| `FirecrackerProvisioner` | microVM per session | ~125ms | Very high (dedicated kernel) | Enterprise / public SaaS |
+| `KnativeProvisioner` | Scale-to-zero K8s | ~1-3s | Medium | Bursty workloads |
+
+- [ ] Introduce `ExecutionUnit` abstraction in `Provisioner` interface — `create_execution_unit(agent_id, session_id, context)` / `destroy_execution_unit(unit_id)`; today's 1:1 agent↔pod becomes a special case
+- [ ] `gVisorProvisioner` — enable gVisor (`runsc`) as the K8s container runtime; drop-in replacement for `KubernetesProvisioner` with stronger sandbox isolation; no application-level changes required
+- [ ] `FirecrackerProvisioner` — microVM per session via Firecracker or Kata Containers; each session gets a dedicated kernel; target for public multi-tenant deployments
+- [ ] `KnativeProvisioner` — agent definition stored as a Knative Service; execution units scale to zero between sessions; event-driven activation via Knative Eventing
+
+### Enterprise Identity & Access
+
+- [ ] **SSO / SAML 2.0 / OIDC** — enterprise identity provider integration; replace API key auth with federated identity
+- [ ] **RBAC** — role-based access control at account / workspace / agent / project level; `admin`, `operator`, `developer`, `viewer` built-in roles
+- [ ] **Audit log** — immutable append-only log of all API calls, agent lifecycle events, and tool executions; exportable to SIEM (Splunk, QRadar, IBM Log Analysis)
+
+### Billing & SLA Tiers
+
+- [ ] **Usage metering** — track execution unit time, LLM tokens, tool calls, and storage per account; expose via `GET /billing/usage`
+- [ ] **SLA tiers** — `best-effort` (default, shared infrastructure) and `guaranteed` (dedicated node pool, priority scheduling)
+- [ ] **Cost attribution** — per-project and per-agent cost breakdown; webhook notifications on budget thresholds
+
+### Compliance & Data Residency
+
+- [ ] **Data residency controls** — restrict agent execution and storage to a specific cloud region or on-prem cluster; enforced at provisioner level
+- [ ] **Encryption at rest** — agent workspaces and conversation history encrypted with customer-managed keys (BYOK via IBM Key Protect or HashiCorp Vault)
+- [ ] **GDPR / HIPAA mode** — conversation data never leaves the customer's infrastructure; PII redaction hooks in the LLM Gateway
