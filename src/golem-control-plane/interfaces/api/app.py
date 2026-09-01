@@ -508,15 +508,13 @@ async def chat_proxy(websocket: WebSocket, agent_id: str, conversation_id: str |
                 async for token in runner_ws:
                     await websocket.send_text(str(token))
 
-            _done, pending = await asyncio.wait(
+            await asyncio.wait(
                 [
                     asyncio.ensure_future(_client_to_runner()),
                     asyncio.ensure_future(_runner_to_client()),
                 ],
-                return_when=asyncio.FIRST_COMPLETED,
+                return_when=asyncio.ALL_COMPLETED,
             )
-            for task in pending:
-                task.cancel()
 
     except websockets.exceptions.ConnectionClosed:
         pass
@@ -541,7 +539,7 @@ async def chat_proxy(websocket: WebSocket, agent_id: str, conversation_id: str |
 # ---------------------------------------------------------------------------
 
 
-@app.post(path="/agents/{agent_id}/tasks", response_model=TaskResponse, status_code=202)
+@app.post(path="/agents/{agent_id}/tasks", response_model=TaskResponse, status_code=201)
 async def submit_task(agent_id: str, body: SubmitTaskRequest) -> TaskResponse:
     """
     Submit a new A2A task to an agent sandbox (fire-and-forget).
