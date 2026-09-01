@@ -5,8 +5,44 @@ on:
     branches: [main]
 
 jobs:
+  # Separate path-filter job so both downstream jobs can reference its outputs.
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      lintable: ${{ steps.filter.outputs.lintable }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            # Triggers unit tests: Python source, tests, and project config.
+            code:
+              - 'src/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+
+            # Triggers pre-commit: everything above plus scripts, Docker,
+            # deploy manifests, and the pre-commit config itself.
+            # Excludes: docs/, .github/, .vscode/, *.md at root.
+            lintable:
+              - 'src/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - '.pre-commit-config.yaml'
+              - 'Dockerfile'
+              - '*.sh'
+              - 'deploy/**'
+              - 'minikube/**'
+
   pre-commit:
     name: Pre-commit hooks
+    needs: changes
+    if: needs.changes.outputs.lintable == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,6 +53,8 @@ jobs:
 
   unit-tests:
     name: Unit tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
