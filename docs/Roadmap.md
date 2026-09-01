@@ -18,7 +18,7 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 
 | Area | What was delivered |
 |---|---|
-| **Agent Runner** | Python + LangGraph container (WatsonX / `langchain-ibm`); `bash` + `http_check` embedded tools; `AGENTS.md` persona injection; `SKILL.md` declarative skill injection; MCP multi-server client (`MultiServerMCPClient`) |
+| **Agent Runner** | Python + LangGraph container (WatsonX / `langchain-ibm`); `execute_command` + `http_check` embedded tools; `AGENTS.md` persona injection; `SKILL.md` declarative skill injection; MCP multi-server client (`MultiServerMCPClient`) |
 | **Control Plane** | FastAPI service; Kubernetes Provisioner (Namespace + Pod + ConfigMap + ResourceQuota + NetworkPolicy per agent); TTL Garbage Collector; WebSocket chat proxy with multi-conversation support (`conversation_id`); auto-titling of conversations |
 | **A2A** | Agent Card (`/.well-known/agent.json`) published at runner boot; push handshake (`POST /agents/{id}/handshake`) + pull fallback; A2A task lifecycle (`submitted → working → completed / failed`); task delegation between agents (`POST /agents/{id}/delegate`) |
 | **Automations** | Background triggers in the runner: Cron, Timer, Webhook |
@@ -66,7 +66,92 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 
 ---
 
-## MVP 3 — MCP Registry & Skill Registry  `October 2026`
+## MVP 3 — Built-in Tools & `.golem/` Convention  `October 2026`
+
+**Goal:** Equip the agent runner with a rich set of built-in tools for filesystem navigation and command execution. Introduce the `.golem/` directory as the single workspace convention for system prompts, skills, and subagent definitions. Let operators restrict tool visibility per agent via `config.yaml`.
+
+**Wow demos unlocked:**
+- Deploy a coding agent that can read, edit, and search files in its workspace — no MCP server needed.
+- Lock a customer-facing agent to `http_check` only via a single `config.yaml` line — it cannot touch the filesystem.
+- Drop a `researcher.md` in `.golem/agents/` at creation time — the agent knows it has a researcher subagent ready to spawn.
+
+**Estimated effort: ~20 hours**
+
+| Area | Est. hours |
+|---|:---:|
+| `.golem/` workspace convention | 2h |
+| `execute_command` (replaces `bash`) | 2h |
+| File tools (`read_file`, `write_file`, `list_files`) | 4h |
+| Search tools (`glob`, `grep`, `search_replace`) | 4h |
+| `insert_content` | 2h |
+| `config.yaml` tool visibility filter | 3h |
+| Tests + docs | 3h |
+
+### `.golem/` — Workspace Convention
+
+*`/app/.golem/` becomes the single root for all agent-owned files inside the runner. Previously flat paths are moved under this directory.*
+
+```
+/app/.golem/
+  AGENTS.md          ← parent agent system prompt (was /app/AGENTS.md)
+  skills/            ← skill files (was /app/skills/)
+    k8s.md
+    python.md
+  agents/            ← subagent system prompts (new)
+    researcher.md
+    coder.md
+```
+
+- [ ] Runner reads `AGENTS.md` from `/app/.golem/AGENTS.md`; fallback to `/app/AGENTS.md` for backward compatibility
+- [ ] Runner scans skills from `/app/.golem/skills/*/SKILL.md`; fallback to `/app/skills/` for backward compatibility
+- [ ] Runner discovers subagent definitions from `/app/.golem/agents/*.md` at boot; registers their names for use by `spawn_subagent` (MVP 6)
+- [ ] Control Plane mounts the entire `.golem/` directory as a single ConfigMap at agent creation time; no post-creation update in this MVP
+- [ ] CLI: `golem agent create --golem-dir .golem/` — uploads the whole directory; default path is `./.golem/` relative to the current directory
+
+### `execute_command` — Replaces `bash`
+
+*Structured command execution with explicit working directory and timeout. `bash` is retired.*
+
+- [ ] `execute_command(command, cwd?, timeout_seconds?)` — runs a shell command; `cwd` defaults to the agent workspace root; `timeout_seconds` defaults to 30
+- [ ] Runner: replace the existing `bash` tool registration with `execute_command`; `config.yaml` `tools.bash` key renamed to `tools.execute_command` (backward-compatible alias accepted)
+
+### File Tools
+
+- [ ] `read_file(path, range?)` — read a file from the agent workspace; optional `range` (`"start-end"` line numbers) to read a slice
+- [ ] `write_file(path, content)` — create or overwrite a file in the agent workspace
+- [ ] `list_files(path, recursive?)` — list files and directories under `path`; `recursive` defaults to false
+
+### Search Tools
+
+- [ ] `glob(pattern, path?)` — find files matching a glob pattern; results sorted by modification time; capped at 100
+- [ ] `grep(pattern, path?, include?, ignore_case?, files_with_matches?)` — regex content search across workspace files; results grouped by file with line numbers; capped at 100 matches
+- [ ] `search_replace(path, search, replace, start_line?, end_line?)` — find-and-replace within a single file; supports literal and regex patterns
+
+### `insert_content`
+
+- [ ] `insert_content(path, line, content)` — insert lines at a specific position in a file; `line: 0` appends to end
+
+### Tool Visibility — `config.yaml` Filter
+
+*By default the agent sees all built-in tools. Operators can restrict visibility to an explicit allowlist.*
+
+- [ ] `config.yaml` `agent.tools` field — optional list of tool names; when present only listed tools are registered; absent → all tools enabled
+- [ ] Runner: reads `agent.tools` at boot and filters the tool registry accordingly; unknown names logged as warnings, not errors
+
+```yaml
+# config.yaml example — restrict to read-only + http_check
+agent:
+  tools:
+    - read_file
+    - list_files
+    - glob
+    - grep
+    - http_check
+```
+
+---
+
+## MVP 4 — MCP Registry & Skill Registry  `November 2026`
 
 **Goal:** Make MCP servers reusable across agents and introduce versioned skills from Git. Introduce a richer `config.yaml` as the single manifest for an agent.
 
@@ -102,14 +187,14 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 *`config.yaml` becomes the single source of truth for an agent. No more separate multipart uploads.*
 
 - [ ] `agent.identity` field — path to `AGENTS.md` relative to `config.yaml`; replaces inline `system_prompt` (backward-compatible: `system_prompt` still accepted if `identity` is absent)
-- [ ] `agent.skills` as a structured list — built-in names (`bash`, `http_check`), local paths (`path: ./skills/k8s.md`), and registry references (`source: acme/sre@v1.2`); replaces flat `enabled_skills` string (backward-compatible)
+- [ ] `agent.skills` as a structured list — built-in names (`execute_command`, `http_check`), local paths (`path: ./skills/k8s.md`), and registry references (`source: acme/sre@v1.2`); replaces flat `enabled_skills` string (backward-compatible)
 - [ ] `agent.mcp` entries accept both raw `url:` (existing) and named registry reference `name:` (new); Control Plane resolves names to URIs at provision time
 - [ ] Control Plane: when `POST /agents` receives only `config.yaml`, resolve `identity` and `skills` paths relative to the uploaded file; no `agents_md` or `skills` multipart fields required
 - [ ] CLI: `golem agent create --config agent/config.yaml` resolves and uploads all referenced files automatically
 
 ---
 
-## MVP 4 — Resilience, Observability & Docker  `November 2026`
+## MVP 5 — Resilience, Observability & Docker  `December 2026`
 
 **Goal:** Survive restarts, make the platform observable, add Docker-based local deployment, and publish release artefacts.
 
@@ -118,12 +203,13 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 - `docker compose up` on a fresh machine — full Golem running in 2 minutes, no cluster.
 - Open Langfuse, watch every LLM call traced live with token counts and latencies.
 
-**Estimated effort: ~21 hours**
+**Estimated effort: ~24 hours**
 
 | Area | Est. hours |
 |---|:---:|
 | Resilience (Redis + PostgreSQL) | 6h |
 | Conversation metadata | 2h |
+| Token breakdown per conversation | 3h |
 | Observability (external Langfuse) | 3h |
 | `DockerProvisioner` + Compose bundle | 4h |
 | Docker Hub CI + Helm Chart | 4h |
@@ -137,6 +223,30 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 - [ ] **Conversation rolling summary** — LangGraph summary node condenses history at a configurable token/message threshold; persisted to Redis; prevents context window overflow
 - [ ] **Conversation metadata** — PostgreSQL stores per-conversation counters: message count, turn count, total input/output tokens, agent ID; updated at every turn; exposed via `GET /conversations/{id}` and `GET /agents/{id}/conversations`
 - [ ] CLI: `golem conv list` shows message count, turn count, and token totals per conversation; `golem conv show <id>` displays full metadata
+
+### Token Breakdown per Conversation
+
+*Granular token usage breakdown accumulated over the entire conversation lifetime. All figures are **estimates** computed client-side by the runner using `tiktoken` (or model-equivalent tokeniser) before each LLM call — not reported by the provider.*
+
+- [ ] Runner estimates token count per category before every LLM call: `system_prompt`, `tool_definitions` (built-in tools), `mcp_tools` (MCP server tool schemas), `skills` (injected skill content), `messages` (conversation history)
+- [ ] Per-turn breakdown accumulated into per-conversation totals in PostgreSQL; updated at every turn alongside existing counters
+- [ ] `GET /conversations/{id}` response extended with `token_breakdown` object:
+
+```json
+{
+  "token_breakdown": {
+    "system_prompt": 412,
+    "tool_definitions": 890,
+    "mcp_tools": 1240,
+    "skills": 630,
+    "messages": 3870,
+    "total_estimated": 7042
+  }
+}
+```
+
+- [ ] CLI: `golem conv show <id>` displays the breakdown as a table; values labelled as `(estimated)`
+- [ ] Tokeniser selected at runner boot based on `llm.model` in `config.yaml`; falls back to `cl100k_base` (GPT-4 / general purpose) when the model is unknown
 
 ### Observability — External Langfuse
 
@@ -159,23 +269,25 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 
 ---
 
-## MVP 5 — Programmability & Advanced Agents  `December 2026`
+## MVP 6 — Programmability, Advanced Agents & Supervisor Pattern  `January 2027`
 
-**Goal:** Let developers inject custom graph logic, lightweight hooks, and unlock deeper reasoning agent types without rebuilding the runner image.
+**Goal:** Let developers inject custom graph logic, lightweight hooks, and unlock deeper reasoning agent types without rebuilding the runner image. Introduce `spawn_subagent` for in-process Supervisor pattern with isolated context windows.
 
 **Wow demos unlocked:**
 - Upload a `pipeline.py`, deploy an agent with a completely custom LangGraph — no image rebuild.
 - Ask a deep agent to plan a multi-step investigation; watch it decompose the task, run sub-goals, and return a synthesised report.
 - Mount a `guardrail.py` hook — every LLM response is filtered before being returned, zero runner changes.
+- Call `spawn_subagent("researcher", task="find papers on RAG")` — a fresh LangGraph session runs in-process, returns the result, and disappears. No pod, no network.
 
-**Estimated effort: ~18 hours**
+**Estimated effort: ~22 hours**
 
 | Area | Est. hours |
 |---|:---:|
 | Graph Plugin system | 7h |
 | ReAct + Deep agent loop types | 5h |
 | Graph Hooks / Middleware | 3h |
-| CLI + docs | 3h |
+| `spawn_subagent` tool | 5h |
+| CLI + docs | 2h |
 
 ### Programmability — Custom Graph Upload
 
@@ -193,15 +305,58 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 
 *Surgical extension points on the built-in ReAct loop. Add state, guardrails, or context injection without writing a full `pipeline.py`.*
 
-- [ ] Runner exposes hook points in the LangGraph graph: `before_agent`, `after_agent`, `before_tools`, `after_tools`, `on_final_answer`
-- [ ] Hook files (`hooks/*.py`) mounted via ConfigMap alongside skills; each file must define a function matching the hook point name and receiving/returning the agent state
-- [ ] `config.yaml` `agent.hooks` list — paths to hook files; loaded and wired into the graph at runner boot; absent → no-op, existing behaviour unchanged
+Two categories of hook points:
+
+**Lifecycle hooks** — fired once per session or turn, outside the LangGraph node cycle:
+
+| Hook | When |
+|---|---|
+| `on_session_start` | Runner boot complete, before the first message is accepted |
+| `on_agent_stop` | Runner is shutting down (SIGTERM / TTL expiry) |
+| `on_prompt_submit` | User message received, before it enters the LangGraph graph; can mutate or reject the message |
+
+**Graph hooks** — fired inside the LangGraph node execution cycle:
+
+| Hook | When |
+|---|---|
+| `before_agent` | Before the LLM node runs |
+| `after_agent` | After the LLM node produces its output |
+| `before_tools` | Before the tool execution node runs |
+| `after_tools` | After all tool calls in a step complete |
+| `on_final_answer` | When the agent decides to return a final answer to the user |
+
+- [ ] Runner exposes all eight hook points above; each hook file must define a function matching the hook point name and receiving/returning the agent state (or message, for `on_prompt_submit`)
+- [ ] Hook files (`hooks/*.py`) placed under `.golem/` and mounted via ConfigMap alongside skills
+- [ ] `config.yaml` `agent.hooks` list — paths to hook files relative to `.golem/`; loaded and wired at runner boot; absent → no-op, existing behaviour unchanged
 - [ ] CLI: `golem agent create --hook ./hooks/guardrail.py`; Control Plane mounts each hook file as a separate ConfigMap entry
 - [ ] Hook custom state fields merged into the base `AgentState` TypedDict at boot; hooks can read and write custom fields across turns
 
+### `spawn_subagent` — In-Process Supervisor Pattern
+
+*A built-in tool that spawns a fresh LangGraph session inside the same runner process. No pod, no network call — just an isolated context window.*
+
+- [ ] `spawn_subagent(name, task, fork_context?, tools?)` — looks up `/app/.golem/agents/<name>.md` as the subagent system prompt; creates a new LangGraph `AgentState` with clean message history; runs the agentic loop to completion; returns the final answer as a string
+- [ ] `fork_context: false` (default) — subagent starts with an empty message history; only its system prompt + `task` are injected
+- [ ] `fork_context: true` — subagent inherits the parent's conversation history up to the point of the call; useful when context is needed for disambiguation
+- [ ] `tools` — optional list of tool names to make available to the subagent; defaults to the same allowlist as the parent; unknown names logged as warnings
+- [ ] Subagent runs synchronously in the same process — parent node blocks until the subagent's final answer is produced; no async fire-and-forget
+- [ ] Recursion guard: subagents cannot call `spawn_subagent` themselves (depth limited to 1); attempt is logged as a warning and the tool call returns an error string
+- [ ] `spawn_subagent` is added to the built-in tool registry but excluded from the `agent.tools` allowlist check — it is always available unless explicitly removed
+
+```yaml
+# config.yaml example — subagent with restricted tools
+# subagent definition lives in .golem/agents/researcher.md
+agent:
+  tools:
+    - spawn_subagent
+    - read_file
+    - http_check
+# researcher subagent will inherit this list unless overridden at call time
+```
+
 ---
 
-## MVP 6 — Multi-Tenancy, Cloud & Workspaces  `January 2027`
+## MVP 7 — Multi-Tenancy, Cloud & Workspaces  `February 2027`
 
 **Goal:** Turn Golem into a personal assistant reachable from the messaging apps you already use — without adding new infrastructure components. The existing Control Plane acts as the channel gateway. Also adds interactive shell access to running sandboxes for debugging.
 
@@ -279,7 +434,7 @@ agent:
 
 ---
 
-## MVP 7 — Interactive CLI (`golem chat`)  `February 2027`
+## MVP 8 — Interactive CLI (`golem chat`)  `March 2027`
 
 **Goal:** Elevate `golem chat` from a thin WebSocket wrapper into a full interactive REPL — slash commands, conversation history browsing, agent switching, and live MCP configuration — all without leaving the terminal.
 
@@ -348,7 +503,7 @@ agent:
 
 ---
 
-## MVP 8 — Messaging Channels  `March 2027`
+## MVP 9 — Messaging Channels  `April 2027`
 
 **Goal:** Open the platform to multiple users, connect to IBM Cloud, and introduce persistent project workspaces.
 
@@ -407,6 +562,7 @@ agent:
 | **Web UI** | React dashboard for agent lifecycle, A2A task monitoring, and conversation management |
 | **Signed A2A Agent Cards** | Cryptographic signature verification in the Card Registry (A2A v1.0 signing spec) |
 | **Graph plugin code signing** | Sign `pipeline.py` at upload; runner verifies before `exec`; OPA policy validation |
+| **`apply_diff` built-in tool** | Surgical multi-block diff editing for agent file workspaces; requires a capable model (GPT-4 class or above); deferred due to LLM output fragility |
 
 ---
 
