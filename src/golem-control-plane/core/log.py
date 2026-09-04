@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 from types import FrameType
 
-from loguru import logger
+from loguru import Logger, Record, logger
 
 APP_LOG_FORMAT = (
     "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
@@ -88,7 +88,7 @@ class LoggerManager:
     def _configure_logger(self) -> None:
         """Configure Loguru handlers based on settings."""
 
-        def format_record(record: dict) -> str:
+        def format_record(record: Record) -> str:
             format_map: dict[bool, str] = {
                 True: APP_LOG_FORMAT,
                 False: INTERCEPTED_LOG_FORMAT,
@@ -124,7 +124,7 @@ class LoggerManager:
             log.propagate = False
 
     @staticmethod
-    def get_logger(name: str) -> logger:
+    def get_logger(name: str) -> Logger:
         """Return a logger bound to the given name (class or module).
 
         Args:
