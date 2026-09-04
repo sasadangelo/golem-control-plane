@@ -127,30 +127,94 @@ Inside the pod, the architecture is layered as follows:
 
 ## Control Plane Internal Architecture (Hexagonal / Ports & Adapters)
 
-The Control Plane codebase is structured using **Hexagonal Architecture**:
+The Control Plane codebase is structured following the **Hexagonal Architecture** pattern (also known as *Ports & Adapters*), originally described by Alistair Cockburn in 2005. The central principle is the **Dependency Rule**: every source-code dependency points inward, toward the Domain. No inner layer ever imports from an outer one.
+
+### Folder Structure
 
 ```
 src/golem-control-plane/
-├── domain/                          ← DOMAIN CORE (Pure models & ports)
-│   ├── models.py                    ← AgentSpec, SandboxHandle, SandboxStatus, A2ATask, Conversation
-│   └── ports/
-│       └── provisioner.py           ← Provisioner ABC (Output Port)
 │
-├── infrastructure/                  ← DRIVEN ADAPTERS (Output Implementations)
+├── domain/                              ← DOMAIN (innermost — zero external dependencies)
+│   ├── models.py                        ← AgentSpec, SandboxHandle, SandboxStatus,
+│   │                                       A2ATask, Conversation
+│   └── ports/                           ← Abstract contracts (interfaces) owned by the Domain
+│       ├── provisioner.py               ← Provisioner port (sandbox lifecycle)
+│       ├── sandbox_repo.py              ← SandboxRepository port (sandbox persistence)
+│       └── task_repo.py                 ← TaskRepository, ConversationRepository ports
+│
+├── application/                         ← APPLICATION (use cases — no framework, no I/O)
+│   └── services/
+│       ├── agent_service.py             ← create / delete / list / status / handshake / GC loop
+│       ├── task_service.py              ← submit / list / get / update / delegate
+│       ├── conversation_service.py      ← create / list / delete / auto-name
+│       └── chat_service.py             ← WebSocket proxy, active connection tracking
+│
+├── infrastructure/                      ← INFRASTRUCTURE (driven adapters — implements ports)
 │   └── adapters/
-│       ├── k8s_provisioner.py       ← Kubernetes Provisioner
-│       ├── mock_provisioner.py      ← In-memory Mock Provisioner (for tests/local smoke)
-│       └── card_registry.py         ← In-memory A2A Card Registry
+│       ├── k8s_provisioner.py           ← implements Provisioner via Kubernetes API
+│       ├── mock_provisioner.py          ← implements Provisioner in-memory (tests / local smoke)
+│       ├── card_registry.py             ← in-memory A2A Agent Card registry
+│       └── in_memory_repos.py           ← implements SandboxRepository, TaskRepository,
+│                                           ConversationRepository (replaced by PostgreSQL in Week 3)
 │
-├── interfaces/                      ← DRIVING ADAPTERS (Input APIs)
+├── interfaces/                          ← INTERFACES (driving adapters — HTTP / WebSocket)
 │   └── api/
-│       ├── app.py                   ← FastAPI routing, WebSocket chat proxy, TTL GC
-│       └── schemas.py               ← Pydantic request / response DTOs
+│       ├── app.py                       ← FastAPI bootstrap, dependency wiring, lifespan (~110 lines)
+│       ├── schemas.py                   ← Pydantic request / response DTOs
+│       └── routers/
+│           ├── agent_router.py          ← POST/GET/DELETE /agents, /handshake, /card
+│           ├── task_router.py           ← POST/GET/PATCH /tasks, /delegate
+│           ├── conversation_router.py   ← POST/GET/DELETE /conversations
+│           └── chat_router.py          ← WS /chat/{agent_id}
 │
-└── core/                            ← CROSS-CUTTING
-    ├── config.py                    ← Pydantic Settings (config.yaml + .env)
-    └── log.py                       ← Structured logging (Loguru)
+└── core/                                ← CROSS-CUTTING (shared utilities, no business logic)
+    ├── config.py                        ← Pydantic Settings (config.yaml + .env)
+    └── log.py                           ← Structured logging (Loguru)
 ```
+
+### Layer Responsibilities
+
+| Layer | Responsibility | Depends on |
+|---|---|---|
+| **Domain** | Pure business entities (`models.py`) and abstract port interfaces. Contains no framework code, no I/O, no infrastructure knowledge. | Nothing |
+| **Application** | One service class per use-case group. Orchestrates domain objects through ports. Contains all business logic (validation, state transitions, GC policy, auto-naming). | Domain only |
+| **Infrastructure** | Concrete implementations of domain ports. Each adapter knows one external system (Kubernetes, in-memory dict, PostgreSQL). | Domain ports |
+| **Interfaces** | HTTP routing and WebSocket handling (FastAPI). Translates HTTP verbs + JSON into service calls, maps exceptions to HTTP status codes. Contains no business logic. | Application services |
+| **Core** | Configuration and logging utilities. Imported by all layers. | Nothing |
+
+### Dependency Rule in Practice
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Interfaces / api                                               │
+│  (FastAPI routers — HTTP glue only)                             │
+│                        │ calls                                  │
+│  ┌─────────────────────▼───────────────────────────────────┐   │
+│  │  Application / services                                 │   │
+│  │  (business logic, use cases, GC loop)                   │   │
+│  │                     │ uses ports                        │   │
+│  │  ┌──────────────────▼──────────────────────────────┐   │   │
+│  │  │  Domain                                         │   │   │
+│  │  │  models.py + ports/ (abstract interfaces)       │   │   │
+│  │  └──────────────────▲──────────────────────────────┘   │   │
+│  │                     │ implements                        │   │
+│  └─────────────────────┼───────────────────────────────────┘   │
+│                        │                                        │
+│  Infrastructure / adapters                                      │
+│  (K8s, in-memory repos, card registry)                          │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+All arrows point inward. The Domain is never aware of FastAPI, Kubernetes, or any storage technology. The Application layer is never aware of HTTP status codes or SQL. Swapping an adapter — for example replacing `InMemorySandboxRepository` with `PostgresSandboxRepository` — requires changing a single line in `app.py` and writing the new adapter class; no business logic is touched.
+
+### Driving vs. Driven Ports
+
+Hexagonal Architecture distinguishes two kinds of ports:
+
+- **Driving ports** (left side): the outside world *calls* the application. In this codebase that is the HTTP/WebSocket API in `interfaces/api/`. A user or the Golem CLI initiates an action.
+- **Driven ports** (right side): the application *calls* the outside world. In this codebase those are `Provisioner`, `SandboxRepository`, `TaskRepository`, and `ConversationRepository` — all defined in `domain/ports/` and implemented in `infrastructure/adapters/`.
+
+The Domain owns the contracts for both sides. Neither the HTTP framework nor the storage technology has any influence on the shape of the domain model.
 
 ---
 

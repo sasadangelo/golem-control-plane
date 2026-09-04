@@ -87,7 +87,9 @@ def test_handshake_updates_sandbox_agent_card(cp_client: TestClient, mock_provis
     agent_id = _create_agent(cp_client, mock_provisioner, agent_id="golem-agent-hs")
     cp_client.post(f"/agents/{agent_id}/handshake", json={"card": _SAMPLE_CARD})
 
-    assert cp_main._sandboxes[agent_id].agent_card == _SAMPLE_CARD
+    handle = cp_main.sandbox_repo.get(agent_id)
+    assert handle is not None
+    assert handle.agent_card == _SAMPLE_CARD
 
 
 def test_handshake_card_appears_in_status(cp_client: TestClient, mock_provisioner: MagicMock) -> None:
