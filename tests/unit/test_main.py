@@ -206,7 +206,7 @@ def test_ws_chat_proxies_messages(cp_client: TestClient, mock_provisioner: Magic
         async def __aexit__(self, *args: object) -> None:
             pass
 
-    with patch("interfaces.api.app.websockets.connect", return_value=_FakeRunnerWS()):  # noqa: SIM117
+    with patch("application.services.chat_service.websockets.connect", return_value=_FakeRunnerWS()):  # noqa: SIM117
         with cp_client.websocket_connect("/chat/golem-agent-run") as ws:
             ws.send_text("hi")
             tokens = []

@@ -16,13 +16,27 @@ def test_gc_deletes_expired_sandbox() -> None:
         "domain.models",
         "domain.ports",
         "domain.ports.provisioner",
+        "domain.ports.sandbox_repo",
+        "domain.ports.task_repo",
         "infrastructure",
         "infrastructure.adapters",
         "infrastructure.adapters.k8s_provisioner",
         "infrastructure.adapters.card_registry",
+        "infrastructure.adapters.in_memory_repos",
+        "application",
+        "application.services",
+        "application.services.agent_service",
+        "application.services.task_service",
+        "application.services.conversation_service",
+        "application.services.chat_service",
         "interfaces",
         "interfaces.api",
         "interfaces.api.schemas",
+        "interfaces.api.routers",
+        "interfaces.api.routers.agent_router",
+        "interfaces.api.routers.task_router",
+        "interfaces.api.routers.conversation_router",
+        "interfaces.api.routers.chat_router",
         "interfaces.api.app",
     ):
         sys.modules.pop(mod, None)
@@ -33,17 +47,17 @@ def test_gc_deletes_expired_sandbox() -> None:
         import interfaces.api.app as cp
 
         mock_prov = MagicMock()
-        cp.provisioner = mock_prov  # type: ignore[attr-defined]
-        cp._sandboxes.clear()  # type: ignore[attr-defined]
-        cp._created_at.clear()  # type: ignore[attr-defined]
+        cp.agent_service._provisioner = mock_prov  # type: ignore[attr-defined]
+        cp.sandbox_repo._sandboxes.clear()  # type: ignore[attr-defined]
+        cp.sandbox_repo._created_at.clear()  # type: ignore[attr-defined]
 
         from domain.models import SandboxHandle, SandboxStatus
 
         handle = SandboxHandle(agent_id="golem-agent-expired", ttl_seconds=60)
         handle.status = SandboxStatus.RUNNING
-        cp._sandboxes["golem-agent-expired"] = handle  # type: ignore[attr-defined]
+        cp.sandbox_repo.save(handle)  # type: ignore[attr-defined]
         # Set created_at 120 seconds in the past (TTL is 60s → already expired)
-        cp._created_at["golem-agent-expired"] = time.time() - 120  # type: ignore[attr-defined]
+        cp.sandbox_repo.set_created_at("golem-agent-expired", time.time() - 120)  # type: ignore[attr-defined]
 
         # Run one GC pass synchronously by replicating the loop logic
         import asyncio
@@ -51,22 +65,20 @@ def test_gc_deletes_expired_sandbox() -> None:
         async def _one_pass() -> None:
             now = time.time()
             expired = [
-                aid
-                for aid, h in list(cp._sandboxes.items())
-                if h.ttl_seconds is not None and now - cp._created_at.get(aid, now) > h.ttl_seconds
+                agent_id
+                for agent_id, h in cp.sandbox_repo.items()  # type: ignore[attr-defined]
+                if h.ttl_seconds is not None and now - (cp.sandbox_repo.get_created_at(agent_id) or now) > h.ttl_seconds
             ]
-            for aid in expired:
-                h = cp._sandboxes[aid]
-                cp.provisioner.delete_sandbox(h)
-                from infrastructure.adapters import card_registry
-
-                card_registry.deregister(aid)
-                cp._sandboxes.pop(aid, None)
-                cp._created_at.pop(aid, None)
+            for agent_id in expired:
+                h = cp.sandbox_repo.get(agent_id)  # type: ignore[attr-defined]
+                assert h is not None
+                cp.agent_service._provisioner.delete_sandbox(h)  # type: ignore[attr-defined]
+                cp.card_registry.deregister(agent_id)  # type: ignore[attr-defined]
+                cp.sandbox_repo.delete(agent_id)  # type: ignore[attr-defined]
 
         asyncio.run(_one_pass())
 
-    assert "golem-agent-expired" not in cp._sandboxes  # type: ignore[attr-defined]
+    assert cp.sandbox_repo.get("golem-agent-expired") is None  # type: ignore[attr-defined]
     mock_prov.delete_sandbox.assert_called_once()
 
 
@@ -77,13 +89,27 @@ def test_gc_keeps_non_expired_sandbox() -> None:
         "domain.models",
         "domain.ports",
         "domain.ports.provisioner",
+        "domain.ports.sandbox_repo",
+        "domain.ports.task_repo",
         "infrastructure",
         "infrastructure.adapters",
         "infrastructure.adapters.k8s_provisioner",
         "infrastructure.adapters.card_registry",
+        "infrastructure.adapters.in_memory_repos",
+        "application",
+        "application.services",
+        "application.services.agent_service",
+        "application.services.task_service",
+        "application.services.conversation_service",
+        "application.services.chat_service",
         "interfaces",
         "interfaces.api",
         "interfaces.api.schemas",
+        "interfaces.api.routers",
+        "interfaces.api.routers.agent_router",
+        "interfaces.api.routers.task_router",
+        "interfaces.api.routers.conversation_router",
+        "interfaces.api.routers.chat_router",
         "interfaces.api.app",
     ):
         sys.modules.pop(mod, None)
@@ -94,32 +120,32 @@ def test_gc_keeps_non_expired_sandbox() -> None:
         import interfaces.api.app as cp
 
         mock_prov = MagicMock()
-        cp.provisioner = mock_prov  # type: ignore[attr-defined]
-        cp._sandboxes.clear()  # type: ignore[attr-defined]
-        cp._created_at.clear()  # type: ignore[attr-defined]
+        cp.agent_service._provisioner = mock_prov  # type: ignore[attr-defined]
+        cp.sandbox_repo._sandboxes.clear()  # type: ignore[attr-defined]
+        cp.sandbox_repo._created_at.clear()  # type: ignore[attr-defined]
 
         from domain.models import SandboxHandle, SandboxStatus
 
         handle = SandboxHandle(agent_id="golem-agent-alive", ttl_seconds=3600)
         handle.status = SandboxStatus.RUNNING
-        cp._sandboxes["golem-agent-alive"] = handle  # type: ignore[attr-defined]
-        cp._created_at["golem-agent-alive"] = time.time()  # just created
+        cp.sandbox_repo.save(handle)  # type: ignore[attr-defined]
+        cp.sandbox_repo.set_created_at("golem-agent-alive", time.time())  # type: ignore[attr-defined]
 
         import asyncio
 
         async def _one_pass() -> None:
             now = time.time()
             expired = [
-                aid
-                for aid, h in list(cp._sandboxes.items())
-                if h.ttl_seconds is not None and now - cp._created_at.get(aid, now) > h.ttl_seconds
+                agent_id
+                for agent_id, h in cp.sandbox_repo.items()  # type: ignore[attr-defined]
+                if h.ttl_seconds is not None and now - (cp.sandbox_repo.get_created_at(agent_id) or now) > h.ttl_seconds
             ]
-            for aid in expired:
-                cp._sandboxes.pop(aid, None)
+            for agent_id in expired:
+                cp.sandbox_repo.delete(agent_id)  # type: ignore[attr-defined]
 
         asyncio.run(_one_pass())
 
-    assert "golem-agent-alive" in cp._sandboxes  # type: ignore[attr-defined]
+    assert cp.sandbox_repo.get("golem-agent-alive") is not None  # type: ignore[attr-defined]
     mock_prov.delete_sandbox.assert_not_called()
 
 
@@ -130,13 +156,27 @@ def test_gc_never_deletes_sandbox_without_ttl() -> None:
         "domain.models",
         "domain.ports",
         "domain.ports.provisioner",
+        "domain.ports.sandbox_repo",
+        "domain.ports.task_repo",
         "infrastructure",
         "infrastructure.adapters",
         "infrastructure.adapters.k8s_provisioner",
         "infrastructure.adapters.card_registry",
+        "infrastructure.adapters.in_memory_repos",
+        "application",
+        "application.services",
+        "application.services.agent_service",
+        "application.services.task_service",
+        "application.services.conversation_service",
+        "application.services.chat_service",
         "interfaces",
         "interfaces.api",
         "interfaces.api.schemas",
+        "interfaces.api.routers",
+        "interfaces.api.routers.agent_router",
+        "interfaces.api.routers.task_router",
+        "interfaces.api.routers.conversation_router",
+        "interfaces.api.routers.chat_router",
         "interfaces.api.app",
     ):
         sys.modules.pop(mod, None)
@@ -147,32 +187,32 @@ def test_gc_never_deletes_sandbox_without_ttl() -> None:
         import interfaces.api.app as cp
 
         mock_prov = MagicMock()
-        cp.provisioner = mock_prov  # type: ignore[attr-defined]
-        cp._sandboxes.clear()  # type: ignore[attr-defined]
-        cp._created_at.clear()  # type: ignore[attr-defined]
+        cp.agent_service._provisioner = mock_prov  # type: ignore[attr-defined]
+        cp.sandbox_repo._sandboxes.clear()  # type: ignore[attr-defined]
+        cp.sandbox_repo._created_at.clear()  # type: ignore[attr-defined]
 
         from domain.models import SandboxHandle, SandboxStatus
 
         # ttl_seconds=None → sandbox must live forever
         handle = SandboxHandle(agent_id="golem-agent-persistent", ttl_seconds=None)
         handle.status = SandboxStatus.RUNNING
-        cp._sandboxes["golem-agent-persistent"] = handle  # type: ignore[attr-defined]
+        cp.sandbox_repo.save(handle)  # type: ignore[attr-defined]
         # Pretend it was created a very long time ago
-        cp._created_at["golem-agent-persistent"] = time.time() - 99999  # type: ignore[attr-defined]
+        cp.sandbox_repo.set_created_at("golem-agent-persistent", time.time() - 99999)  # type: ignore[attr-defined]
 
         import asyncio
 
         async def _one_pass() -> None:
             now = time.time()
             expired = [
-                aid
-                for aid, h in list(cp._sandboxes.items())
-                if h.ttl_seconds is not None and now - cp._created_at.get(aid, now) > h.ttl_seconds
+                agent_id
+                for agent_id, h in cp.sandbox_repo.items()  # type: ignore[attr-defined]
+                if h.ttl_seconds is not None and now - (cp.sandbox_repo.get_created_at(agent_id) or now) > h.ttl_seconds
             ]
-            for aid in expired:
-                cp._sandboxes.pop(aid, None)
+            for agent_id in expired:
+                cp.sandbox_repo.delete(agent_id)  # type: ignore[attr-defined]
 
         asyncio.run(_one_pass())
 
-    assert "golem-agent-persistent" in cp._sandboxes  # type: ignore[attr-defined]
+    assert cp.sandbox_repo.get("golem-agent-persistent") is not None  # type: ignore[attr-defined]
     mock_prov.delete_sandbox.assert_not_called()

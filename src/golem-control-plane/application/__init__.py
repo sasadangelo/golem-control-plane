@@ -2,10 +2,6 @@
 # Copyright (c) 2026 Salvatore D'Angelo, Code4Projects
 # Licensed under the MIT License. See LICENSE.md for details.
 # -----------------------------------------------------------------------------
-"""Driven adapters — concrete implementations of domain output ports."""
+"""Application layer — orchestrates domain objects and ports to implement use cases."""
 
-from .card_registry import InMemoryCardRegistry
-
-__all__ = [
-    "InMemoryCardRegistry",
-]
+__all__: list[str] = []

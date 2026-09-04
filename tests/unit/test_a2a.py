@@ -142,9 +142,9 @@ def test_update_task_to_working(cp_client: TestClient, mock_provisioner: MagicMo
     from domain.models import A2ATask
 
     agent_id: str = _post_agent(client=cp_client, mock_provisioner=mock_provisioner, agent_id="golem-agent-patch1")
-    # Insert a task directly in _tasks (as the runner would via internal state).
+    # Insert a task directly in task_repo (as the runner would via internal state).
     task = A2ATask(agent_id=agent_id, message="work on it")
-    cp_main._tasks[task.task_id] = task
+    cp_main.task_repo.save(task)
     task_id = task.task_id
 
     resp = cp_client.patch(url=f"/agents/{agent_id}/tasks/{task_id}", json={"status": "working"})
@@ -160,7 +160,7 @@ def test_update_task_to_completed_with_result(cp_client: TestClient, mock_provis
 
     agent_id: str = _post_agent(client=cp_client, mock_provisioner=mock_provisioner, agent_id="golem-agent-patch2")
     task = A2ATask(agent_id=agent_id, message="compute something")
-    cp_main._tasks[task.task_id] = task
+    cp_main.task_repo.save(task)
     task_id = task.task_id
 
     resp = cp_client.patch(
@@ -181,7 +181,7 @@ def test_update_task_to_failed(cp_client: TestClient, mock_provisioner: MagicMoc
 
     agent_id: str = _post_agent(cp_client, mock_provisioner=mock_provisioner, agent_id="golem-agent-patch3")
     task = A2ATask(agent_id=agent_id, message="risky op")
-    cp_main._tasks[task.task_id] = task
+    cp_main.task_repo.save(task)
 
     resp = cp_client.patch(f"/agents/{agent_id}/tasks/{task.task_id}", json={"status": "failed", "result": "timeout"})
     assert resp.status_code == 200
@@ -195,7 +195,7 @@ def test_update_task_invalid_status_returns_422(cp_client: TestClient, mock_prov
 
     agent_id: str = _post_agent(client=cp_client, mock_provisioner=mock_provisioner, agent_id="golem-agent-patch4")
     task = A2ATask(agent_id=agent_id, message="x")
-    cp_main._tasks[task.task_id] = task
+    cp_main.task_repo.save(task)
 
     resp = cp_client.patch(url=f"/agents/{agent_id}/tasks/{task.task_id}", json={"status": "invalid-state"})
     assert resp.status_code == 422

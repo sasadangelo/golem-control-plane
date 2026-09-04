@@ -78,13 +78,28 @@ _CONTROL_PLANE_MODULES = (
     "domain.models",
     "domain.ports",
     "domain.ports.provisioner",
+    "domain.ports.sandbox_repo",
+    "domain.ports.task_repo",
     "infrastructure",
     "infrastructure.adapters",
     "infrastructure.adapters.k8s_provisioner",
     "infrastructure.adapters.card_registry",
+    "domain.ports.card_registry",
+    "infrastructure.adapters.in_memory_repos",
+    "application",
+    "application.services",
+    "application.services.agent_service",
+    "application.services.task_service",
+    "application.services.conversation_service",
+    "application.services.chat_service",
     "interfaces",
     "interfaces.api",
     "interfaces.api.schemas",
+    "interfaces.api.routers",
+    "interfaces.api.routers.agent_router",
+    "interfaces.api.routers.task_router",
+    "interfaces.api.routers.conversation_router",
+    "interfaces.api.routers.chat_router",
     "interfaces.api.app",
     "core.config",
 )
@@ -97,14 +112,14 @@ def _reset_modules() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 5. Runner HTTP mock — serves tasks from the in-memory _tasks store
+# 5. Runner HTTP mock — serves tasks from the in-memory task_repo
 # ---------------------------------------------------------------------------
 
 
 def _make_runner_http_mock(cp_main: Any) -> type:
-    """Return a mock httpx.AsyncClient class that serves tasks from _tasks.
+    """Return a mock httpx.AsyncClient class that serves tasks from task_repo.
 
-    POST /a2a/tasks/send  → create a task in _tasks, return A2ATaskResponse
+    POST /a2a/tasks/send  → create a task in task_repo, return A2ATaskResponse
     GET  /a2a/tasks       → all tasks
     GET  /a2a/tasks/{id}  → single task; 404 if not found
     """
@@ -125,7 +140,7 @@ def _make_runner_http_mock(cp_main: Any) -> type:
             pass
 
         async def post(self, url: str, *, json: dict | None = None, **_kw: object) -> httpx.Response:
-            """Handle POST /a2a/tasks/send — create a task record in _tasks."""
+            """Handle POST /a2a/tasks/send — create a task record in task_repo."""
             if "/a2a/tasks/send" not in url:
                 return _resp(404, {"detail": "not found"})
 
@@ -138,28 +153,27 @@ def _make_runner_http_mock(cp_main: Any) -> type:
             source = payload.get("source", "manual")
             task_id = f"task-{_uuid.uuid4().hex[:12]}"
 
-            # Store in _tasks so the subsequent GET can find it.
+            # Store in task_repo so the subsequent GET can find it.
             from domain.models import A2ATask  # type: ignore[import]
 
             task = A2ATask(task_id=task_id, agent_id="mock", message=text, source=source)
             task.status = "completed"  # type: ignore[assignment]
             task.result = "mock result"
-            cp_main._tasks[task_id] = task  # type: ignore[attr-defined]
+            cp_main.task_repo.save(task)  # type: ignore[attr-defined]
 
             return _resp(200, {"id": task_id, "status": {"state": "completed"}, "artifacts": []})
 
         async def get(self, url: str, **_kw: object) -> httpx.Response:
             import json as _json
 
-            tasks_store: dict = cp_main._tasks  # type: ignore[attr-defined]
             if "/a2a/tasks/" in url:
                 task_id = url.split("/a2a/tasks/")[-1]
-                task = tasks_store.get(task_id)
+                task = cp_main.task_repo.get(task_id)  # type: ignore[attr-defined]
                 if task is None:
                     return _resp(404, {"detail": "not found"})
                 return _resp(200, _json.loads(task.model_dump_json()))
             # list all
-            all_tasks = [_json.loads(t.model_dump_json()) for t in tasks_store.values()]
+            all_tasks = [_json.loads(t.model_dump_json()) for t in cp_main.task_repo._tasks.values()]  # type: ignore[attr-defined]
             return _resp(200, all_tasks)
 
     return _MockAsyncClient
@@ -186,15 +200,15 @@ def cp_client(mock_provisioner: MagicMock) -> TestClient:
     with patch.object(k8s_mod, "_load_k8s_config"):
         import interfaces.api.app as cp_main
 
-        # Inject mock provisioner and reset sandbox/task stores
-        cp_main.provisioner = mock_provisioner  # type: ignore[attr-defined]
-        cp_main._sandboxes.clear()  # type: ignore[attr-defined]
-        cp_main._tasks.clear()  # type: ignore[attr-defined]
+        # Inject mock provisioner into the agent_service and reset stores
+        cp_main.agent_service._provisioner = mock_provisioner  # type: ignore[attr-defined]
+        cp_main.sandbox_repo._sandboxes.clear()  # type: ignore[attr-defined]
+        cp_main.sandbox_repo._created_at.clear()  # type: ignore[attr-defined]
+        cp_main.task_repo._tasks.clear()  # type: ignore[attr-defined]
+        cp_main.conversation_repo._conversations.clear()  # type: ignore[attr-defined]
+        cp_main.card_registry._registry.clear()  # type: ignore[attr-defined]
 
-        # Patch httpx.AsyncClient globally for the duration of this test so
-        # any GET /a2a/tasks* inside cp_main is served from _tasks in-memory.
-        # We patch the httpx module directly (not via cp_main.httpx which no
-        # longer exists after the import was removed from app.py).
+        # Patch httpx.AsyncClient globally so runner calls hit the in-memory mock.
         import httpx as _httpx
 
         _orig = _httpx.AsyncClient
