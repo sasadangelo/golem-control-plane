@@ -1,178 +1,75 @@
 ---
 name: python-cli
 description: >
-  Use when the user wants to design and implement a Python CLI application.
-  Activated by /python-cli. Guides through three phases: domain modeling (entities and
-  relationships), CLI command/subcommand design, and implementation using Typer + the Command Pattern.
+  Use when the user wants to implement a Python CLI application.
+  Activated by /python-cli. Requires /cli-design to have been run first (reads docs/cli-design.md).
+  Implements the CLI using Typer + the Command Pattern.
 metadata:
-  argument-hint: "[project description or domain]"
+  argument-hint: "[project description]"
 ---
 
-# Python CLI — Design & Implementation Guide
+# Python CLI — Implementation Guide
 
-Follow these phases **in order**. Never jump to implementation before the domain model and CLI design are approved by the user.
+Implement a CLI from the specification in `docs/cli-design.md` using **Typer** and the
+**Command Pattern**.
 
 ---
 
-## Phase 0 — Context Detection
+## Phase 0 — Check Prerequisites
 
-### Step 0.1 — Scaffold readiness check
+### Step 0.1 — CLI design document
 
-Before asking anything, inspect the workspace root with `list_files`. A ready scaffold must have:
+```
+glob: docs/cli-design.md
+```
 
-| Artefact          | Required |
-| ----------------- | -------- |
-| `pyproject.toml`  | ✅       |
-| `src/<package>/`  | ✅       |
-| `.python-version` | ✅       |
-| `uv.lock`         | ✅       |
+**If not found:**
+- Stop immediately and tell the user:
+  _"No CLI design found. Please run `/cli-design` first — it produces `docs/cli-design.md`
+  which this skill uses as implementation input. Once that document exists, come back and
+  run `/python-cli` again."_
+- Do not proceed further.
 
-If **any** of these are missing, stop immediately and tell the user:
+**If found:**
+- Read the file with `read_file`
+- Extract: CLI binary name, resources, command table, usage examples, configuration convention
+- Tell the user: _"I found a CLI design for `<name>`. I'll implement its `<N>` resources and
+  `<M>` commands."_
 
-> "The project scaffold is not ready. Please run `/python-init <project-name>` first to
-> create the full project layout (pyproject.toml, src/, uv, ruff, mypy, pre-commit), then
-> re-invoke `/python-cli`."
+### Step 0.2 — Scaffold readiness
 
-Do **not** proceed until the scaffold is confirmed complete.
+Inspect the workspace root with `list_files`. A ready scaffold must have:
 
-### Phase 1 — Determine context
+| Artefact | Required |
+|----------|----------|
+| `pyproject.toml` | ✅ |
+| `src/<package>/` | ✅ |
+| `.python-version` | ✅ |
+| `uv.lock` | ✅ |
 
-1. Read `pyproject.toml` to understand what packages exist, what dependencies are already
-   declared, and whether a `cli.py` or entry point is already present.
+If **any** of these are missing, stop and tell the user:
+_"The project scaffold is not ready. Please run `/python-init <project-name>` first, then
+re-invoke `/python-cli`."_
+
+### Step 0.3 — Existing code detection
+
+1. Read `pyproject.toml` — understand existing dependencies and entry points
 2. Use `grep` to find domain entities already modelled in code (models, dataclasses, Pydantic
-   schemas, ORM classes). These become the resources for Phase 1 — do **not** ask the user to
-   re-describe what the code already shows.
-3. Check whether `typer` is already a dependency. If not, note it must be added in Phase 3.
-4. Identify where `commands/` should live relative to the existing package structure.
-5. Proceed to Phase 1 in **discovery mode**: present the entities found to the user for
-   confirmation rather than asking from scratch.
+   schemas, ORM classes) — do not re-implement what already exists
+3. Check whether `typer` is already a dependency. If not, note it must be added
+4. Identify where `commands/` should live relative to the existing package structure
 
 ---
 
-## Phase 2 — Domain Modeling
-
-Before writing any code, model the domain. The domain defines the **resources** the CLI will
-manipulate — exactly like the resources of a REST API.
-
-Use `ask_followup_question` to collect:
-
-1. **What is the domain?** Ask the user to describe in plain language what the CLI manages
-   (e.g. "task manager", "cloud resource provisioner", "data pipeline runner").
-2. **What are the resources (entities)?** Identify the nouns — these become the top-level commands.
-   Examples: `project`, `task`, `user`, `job`, `cluster`.
-3. **What are the relationships between resources?** Map cardinality (1:1, 1:N, M:N).
-   Relationships determine **navigation depth** in the CLI:
-   - A **strong relationship** (child only exists in the context of a parent) → child becomes a
-     nested subcommand under the parent: `cli project task list --project-id 1`
-   - A **weak relationship** (child can exist independently, parent is just a filter) → child stays
-     at the top level with the parent ID as an option: `cli task list --project-id 1`
-   - Maximum navigation depth is **2 levels** (root → resource → sub-resource). Beyond that, use
-     contextual options instead of deeper nesting.
-
-Produce a **domain table** before moving on:
-
-| Resource  | Relationship          | Notes                                   |
-| --------- | --------------------- | --------------------------------------- |
-| `project` | root resource         | Independent, top-level                  |
-| `task`    | project (1:N, strong) | Task only exists inside a project       |
-| `stats`   | aggregates task data  | Logical grouping, not a stored resource |
-
-Do not proceed to Phase 2 until the user confirms the domain table.
-
----
-
-## Phase 3 — CLI Design
-
-Translate the domain model into a concrete CLI syntax. The design follows the same logic as a
-REST API: **resources are commands, HTTP verbs map to subcommands**.
-
-### Verb mapping (REST → CLI)
-
-| HTTP method              | CLI subcommand      | Meaning                     |
-| ------------------------ | ------------------- | --------------------------- |
-| `GET /resources`         | `list`              | List all instances          |
-| `GET /resources/{id}`    | `show`              | Show one instance           |
-| `POST /resources`        | `add` / `create`    | Create a new instance       |
-| `PUT /resources/{id}`    | `update`            | Update an existing instance |
-| `DELETE /resources/{id}` | `delete` / `remove` | Delete an instance          |
-
-Add domain-specific verbs where needed: `run`, `export`, `import`, `sync`, `publish`.
-
-### Naming conventions
-
-- Commands = resource names (singular noun): `project`, `task`, `user`
-- Subcommands = action verbs: `list`, `add`, `show`, `update`, `delete`
-- Options use `--kebab-case`; short aliases use a single letter `-x`
-- Path parameters (e.g. `{id}`) become required options: `--id/-i`
-- Body fields become required or optional options: `--name/-n`, `--output/-o`
-- Positional arguments only for truly unambiguous single values; prefer named options otherwise
-
-### Nested resources (strong relationships, max 2 levels)
-
-When a resource only exists in the context of a parent, nest it:
-
-```
-cli project list
-cli project add   --name "..."
-cli project show  --id 1
-cli project task list   --project-id 1
-cli project task add    --project-id 1 --name "..."
-cli project task delete --project-id 1 --id 3
-```
-
-When a resource is independent (weak relationship), keep it at the top level:
-
-```
-cli task list --project-id 1     # project-id is a filter, not a context
-```
-
-### Design table
-
-For each resource and operation, produce a command table:
-
-| Command        | Subcommand | Options / Args                                                 | Description             |
-| -------------- | ---------- | -------------------------------------------------------------- | ----------------------- |
-| `project`      | `list`     | —                                                              | List all projects       |
-| `project`      | `add`      | `--name/-n` (str, required)                                    | Create a project        |
-| `project`      | `show`     | `--id/-i` (int, required)                                      | Show project details    |
-| `project`      | `delete`   | `--id/-i` (int, required)                                      | Delete a project        |
-| `project task` | `list`     | `--project-id/-p` (int, required)                              | List tasks in a project |
-| `project task` | `add`      | `--project-id/-p` (int, required), `--name/-n` (str, required) | Add a task              |
-| `project task` | `delete`   | `--project-id/-p` (int, required), `--id/-i` (int, required)   | Delete a task           |
-| `stats`        | `summary`  | —                                                              | Print statistics        |
-| `stats`        | `export`   | `--output/-o` (str, default: report.csv)                       | Export to CSV           |
-
-### Usage examples
-
-Write the full CLI invocation for every command before moving on:
-
-```
-cli project list
-cli project add --name "Website redesign"
-cli project show --id 1
-cli project delete --id 1
-cli project task list --project-id 1
-cli project task add --project-id 1 --name "Buy milk"
-cli project task delete --project-id 1 --id 3
-cli stats summary
-cli stats export --output report.csv
-```
-
-Do not proceed to Phase 3 until the user confirms the command table and examples.
-
----
-
-## Phase 4 — Implementation
+## Phase 1 — Implementation
 
 ### Technology stack
 
-- **Typer** for CLI parsing and dispatch. Typer sits on top of Click and infers argument types,
-  required flags, and help text directly from Python type annotations — no separate `@click.option`
-  decorators needed. This keeps signatures as the single source of truth and integrates cleanly
-  with mypy.
-- **Command Pattern** for business logic. Typer handles dispatch; command classes encapsulate
-  behavior. One class per resource (or logical group), not one class per subcommand.
-- Follow the **python-style-guide** skill conventions: modern type hints (`X | None`, `list[str]`),
+- **Typer** for CLI parsing and dispatch. Typer infers argument types, required flags, and help
+  text directly from Python type annotations — no separate `@click.option` decorators needed.
+- **Command Pattern** for business logic. One class per resource (or logical group), not one
+  class per subcommand. Typer handles dispatch; command classes encapsulate behaviour.
+- Follow the **python-style-guide** conventions: modern type hints (`X | None`, `list[str]`),
   Google docstrings, ruff formatting, `uv` for dependency management.
 
 ### Project structure
@@ -192,13 +89,19 @@ Do not proceed to Phase 3 until the user confirms the command table and examples
             └── ...
 ```
 
-### Base command class
+### Step 1.1 — Add dependency
 
-The base class is a **marker** only. Typer handles dispatch, so no shared `execute(args)` method
-is needed or wanted — it would break type safety:
+If `typer` is not already present:
+
+```
+execute_command: uv add typer
+```
+
+### Step 1.2 — Create `commands/base.py`
+
+The base class is a **marker** only. Typer handles dispatch, so no shared `execute(args)` method:
 
 ```python
-# commands/base.py
 from abc import ABC
 
 
@@ -210,235 +113,161 @@ class Command(ABC):
     """
 ```
 
-### Typer app wiring (cli.py)
+### Step 1.3 — Create one command class per resource
 
-`cli.py` contains only wiring — Typer app declarations, `add_typer` calls, and thin wrapper
-functions that delegate immediately to command classes:
+One file per resource from the command table in `docs/cli-design.md`.
+Nested sub-resource operations live on the **parent** resource command class when the
+relationship is strong. Extract to its own class only if the parent file exceeds ~120 lines.
 
 ```python
-# cli.py
+# commands/<resource>_command.py
+from .base import Command
+
+
+class <Resource>Command(Command):
+    """Encapsulates all <resource> operations."""
+
+    def list(self) -> None:
+        """List all <resources>."""
+        ...
+
+    def add(self, name: str) -> None:
+        """Create a new <resource>."""
+        ...
+```
+
+### Step 1.4 — Wire `cli.py`
+
+`cli.py` contains **only wiring** — Typer app declarations, `add_typer` calls, and thin wrapper
+functions that delegate immediately to command classes. No business logic here.
+
+```python
 import typer
 
-from <project_name>.commands.project_command import ProjectCommand
-from <project_name>.commands.stats_command import StatsCommand
+from <project_name>.commands.<resource>_command import <Resource>Command
 
-app = typer.Typer(help="<Project> CLI")
+app = typer.Typer(help="<CLI description>", no_args_is_help=True)
 
-# Sub-apps for resources with subcommands
-project_app = typer.Typer(help="Manage projects")
-project_task_app = typer.Typer(help="Manage tasks within a project")
-stats_app = typer.Typer(help="Statistics")
+resource_app = typer.Typer(help="Manage <resources>", no_args_is_help=True)
+app.add_typer(resource_app, name="<resource>")
 
-app.add_typer(project_app, name="project")
-project_app.add_typer(project_task_app, name="task")
-app.add_typer(stats_app, name="stats")
-
-_project = ProjectCommand()
-_stats = StatsCommand()
+_resource = <Resource>Command()
 
 
-@project_app.command("list")
-def project_list() -> None:
-    """List all projects."""
-    _project.list()
+@resource_app.command("list")
+def resource_list() -> None:
+    """List all <resources>."""
+    _resource.list()
 
 
-@project_app.command("add")
-def project_add(
-    name: str = typer.Option(..., "--name", "-n", help="Project name"),
+@resource_app.command("add")
+def resource_add(
+    name: str = typer.Option(..., "--name", "-n", help="<Resource> name"),
 ) -> None:
-    """Create a new project."""
-    _project.add(name=name)
-
-
-@project_task_app.command("list")
-def task_list(
-    project_id: int = typer.Option(..., "--project-id", "-p", help="Project ID"),
-) -> None:
-    """List all tasks in a project."""
-    _project.task_list(project_id=project_id)
-
-
-@project_task_app.command("add")
-def task_add(
-    project_id: int = typer.Option(..., "--project-id", "-p", help="Project ID"),
-    name: str = typer.Option(..., "--name", "-n", help="Task name"),
-) -> None:
-    """Add a task to a project."""
-    _project.task_add(project_id=project_id, name=name)
-
-
-@stats_app.command("summary")
-def stats_summary() -> None:
-    """Show statistics summary."""
-    _stats.summary()
-
-
-@stats_app.command("export")
-def stats_export(
-    output: str = typer.Option("report.csv", "--output", "-o", help="Output file"),
-) -> None:
-    """Export statistics to CSV."""
-    _stats.export(output=output)
+    """Create a new <resource>."""
+    _resource.add(name=name)
 
 
 def main() -> None:
     app()
 ```
 
-### Command class (one per resource, typed methods)
-
-```python
-# commands/project_command.py
-from .base import Command
-
-
-class ProjectCommand(Command):
-    """Encapsulates all project and project-task operations."""
-
-    def list(self) -> None:
-        """List all projects."""
-        ...
-
-    def add(self, name: str) -> None:
-        """Create a new project."""
-        ...
-
-    def task_list(self, project_id: int) -> None:
-        """List tasks belonging to a project."""
-        ...
-
-    def task_add(self, project_id: int, name: str) -> None:
-        """Add a task to a project."""
-        ...
-```
-
-Nested sub-resource operations live on the **parent resource command class** when the relationship
-is strong (child only exists in parent context). If the sub-resource grows large enough to warrant
-its own class, extract it and inject it into the parent command.
-
-### pyproject.toml entry point
+### Step 1.5 — Add entry point to `pyproject.toml`
 
 ```toml
 [project.scripts]
-cli = "<project_name>.cli:main"
+<cli-name> = "<project_name>.cli:main"
 ```
 
-Install with `uv pip install -e .` — the CLI is then available as `cli <command> ...`.
+### Step 1.6 — Configuration module (if needed)
 
-### Implementation checklist
+If `docs/cli-design.md` defines a configuration convention, create `src/<package>/config.py`:
 
-- [ ] Scaffold project with Bob command `/python-init <project name>`
-- [ ] Add dependency: `uv add typer`
-- [ ] Create `commands` folder: `src/<project_name>/commands/`
-- [ ] Wire all commands in `cli.py` (create it if absent, otherwise extend it)
-- [ ] Write `commands/base.py` (marker ABC)
-- [ ] Write one command class per resource from the Phase 2 table — do not duplicate domain logic already in the codebase
-- [ ] Add or update entry point in `pyproject.toml` if not already present
-- [ ] `uv pip install -e .` and smoke-test every example from Phase 2
-- [ ] `ruff check . && ruff format .`
-- [ ] `mypy src/` — fix all errors before declaring done
+```python
+import os
+from pathlib import Path
+
+_PROJECT_PATH = Path(os.environ.get("<CLI_NAME>_PATH", str(Path.home() / ".<cli-name>")))
+CONFIG_PATH = _PROJECT_PATH / "cli" / "config.yaml"
+
+
+def load() -> Config:
+    """Read and parse the config file. Returns defaults if absent."""
+    ...
+
+
+def save(cfg: Config) -> None:
+    """Write the config, creating parent directories as needed."""
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    ...
+```
+
+Command classes receive config via **constructor injection** — they never call `config.load()`
+directly.
+
+### Step 1.7 — Domain models (if needed)
+
+If the CLI exchanges typed data (API responses, config structures), represent them as
+**dataclasses** (or Pydantic models if validation is needed) in `src/<package>/models/`:
+
+```
+src/<package>/models/
+├── __init__.py       ← re-exports every public class
+├── <entity>.py       ← one file per entity or logical group
+```
+
+`__init__.py` re-exports everything — callers write `from <package>.models import Foo`,
+never the full internal path.
+
+---
+
+## Phase 2 — Validation
+
+Run in order:
+
+```
+execute_command: uv pip install -e .
+```
+
+Smoke-test every usage example from `docs/cli-design.md`.
+
+```
+execute_command: ruff check . && ruff format .
+execute_command: mypy src/
+```
+
+Fix all mypy errors before declaring done.
+
+---
+
+## Implementation checklist
+
+- [ ] `docs/cli-design.md` exists and was read
+- [ ] Scaffold confirmed complete (`pyproject.toml`, `src/`, `.python-version`, `uv.lock`)
+- [ ] `uv add typer` (if not already present)
+- [ ] `commands/base.py` written
+- [ ] One command class per resource from the command table — no duplication of existing code
+- [ ] `cli.py` wired — wiring only, no business logic
+- [ ] Entry point added to `pyproject.toml`
+- [ ] Config module written (if `docs/cli-design.md` defines configuration)
+- [ ] `uv pip install -e .` and every usage example smoke-tested
+- [ ] `ruff check . && ruff format .` — clean
+- [ ] `mypy src/` — zero errors
 
 ---
 
 ## Key design rules (always apply)
 
-1. **Domain first.** Entities are resources. Relationships determine navigation depth.
-2. **Resources → commands. Verbs → subcommands.** The same logic as REST.
-3. **Max 2 levels of nesting.** Deeper hierarchies become options, not more subcommands.
-4. **Typer dispatches, command classes encapsulate.** `cli.py` is wiring only.
-5. **One command class per resource** (or logical group) — not one class per subcommand.
-   Subcommands are **methods** of that class, not separate classes.
-6. **No shared `execute(args)` method.** Each method has its own explicit typed signature.
-7. **Typed signatures are the spec.** If mypy complains, the design has a gap.
-8. **Help text on every command and option.** Every `typer.Typer()` app must be created with
-   `no_args_is_help=True`. Every `typer.Option` must carry a `help=` string. Running any
-   command with no arguments must print help, never an unhelpful error.
-9. **File size discipline.** Keep every `*_command.py` file under ~120 lines. When a command
-   class grows beyond that:
-   - Extract large data blobs (e.g. default config templates) into a private
-     `_<resource>_<concern>.py` module in the same `commands/` package.
+1. **cli-design is the spec.** Never invent commands not in `docs/cli-design.md`. If something
+   is missing, ask the user to update the design first with `/cli-design`.
+2. **Typer dispatches, command classes encapsulate.** `cli.py` is wiring only.
+3. **One command class per resource** — subcommands are methods, not separate classes.
+4. **No shared `execute(args)` method.** Each method has its own typed signature.
+5. **Help text on every command and option.** Every `Typer()` app must use `no_args_is_help=True`.
+   Every `typer.Option` must carry a `help=` string.
+6. **File size discipline.** Keep every `*_command.py` under ~120 lines. When it grows beyond:
+   - Extract large data blobs into a private `_<resource>_<concern>.py` module
    - If the class still has too many methods, split into a `commands/<resource>/` sub-package
-     with `__init__.py` re-exporting the command class, and private `_<concern>.py` modules
-     inside it.
-   - Never split the command class itself across files — one class, one module.
-
----
-
-## Domain models convention
-
-If the CLI has domain entities (resources exchanged with an API, configuration structures,
-response shapes), represent them as **typed dataclasses** (or Pydantic models if validation
-is needed) in a dedicated `models/` sub-package — never as raw dicts.
-
-### Location
-
-```
-src/<package>/models/
-├── __init__.py          ← re-exports every public class
-├── <entity>.py          ← one file per entity or logical group
-└── ...
-```
-
-Rules:
-- One file per entity or closely related group of sub-dataclasses
-  (e.g. `runner_config.py` holds `LLMConfig`, `LogConfig`, **and** `RunnerConfig`
-  because they only exist together).
-- `__init__.py` re-exports everything so callers write
-  `from <package>.models import RunnerConfig`, never
-  `from <package>.models.runner_config import RunnerConfig`.
-- Placeholder default values (strings like `"<your-agent-id>"`) are acceptable only in
-  template-generation code (`_*_template.py`). The dataclass defaults must be valid
-  sentinel values or empty strings — never misleading real-looking data.
-- The dataclass is **always** the single source of truth. Template writers serialise from
-  the dataclass; they never maintain a parallel dict.
-
----
-
-## CLI configuration file convention
-
-If the CLI needs persistent configuration (e.g. stored connection profiles, active context,
-API tokens), store it in:
-
-```
-$<PROJECT_NAME>_PATH/cli/config.yaml
-```
-
-where `<PROJECT_NAME>_PATH` is an environment variable that defaults to
-`$HOME/.<project-name>` (project name lowercased, hyphens stripped or kept,
-dot-prefixed). Examples:
-
-| Project name | Env var        | Default value      | Config file                        |
-|--------------|----------------|--------------------|------------------------------------|
-| `golem-cli`  | `GOLEM_PATH`   | `~/.golem`         | `~/.golem/cli/config.yaml`         |
-| `my-tool`    | `MY_TOOL_PATH` | `~/.my-tool`       | `~/.my-tool/cli/config.yaml`       |
-
-**At the start of Phase 1**, ask the user:
-
-> "The CLI home directory will default to `~/.<project-name>` and can be overridden with
-> the `<PROJECT_NAME>_PATH` environment variable. The config will be at
-> `$<PROJECT_NAME>_PATH/cli/config.yaml`. Is that correct, or do you want a different path?"
-
-Accept alternatives such as `~/.config/<name>/` (XDG). Record the confirmed path and
-env var name and use them consistently throughout Phases 2 and 3.
-
-### Responsibilities of the config module
-
-Create `src/<package>/config.py` (not inside `commands/`). It must:
-
-- Derive the base directory from the env var, falling back to `Path.home() / ".<name>"`:
-  ```python
-  import os
-  from pathlib import Path
-  _PROJECT_PATH = Path(os.environ.get("<PROJECT_NAME>_PATH", str(Path.home() / ".<name>")))
-  CONFIG_PATH = _PROJECT_PATH / "cli" / "config.yaml"
-  ```
-- Provide a `load() -> Config` function that reads and parses the YAML, returning a typed
-  dataclass or Pydantic model. If the file is absent, return sensible defaults.
-- Provide a `save(cfg: Config) -> None` function that writes the config, creating parent
-  directories as needed.
-- Expose a `get_active_url() -> str` helper (or equivalent active-context resolver) that
-  raises a clear `typer.Exit` with an actionable message when nothing is configured.
-
-Command classes receive the config (or its derived values) via constructor injection —
-they never call `config.load()` directly.
+     with `__init__.py` re-exporting the command class
+   - Never split the command class itself across files — one class, one module
+7. **Typed signatures are the spec.** If mypy complains, the design has a gap.
