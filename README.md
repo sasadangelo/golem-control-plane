@@ -55,12 +55,14 @@ It also provides:
 
 | Document | Description |
 |---|---|
+| [Requirements](docs/requirements.md) | System actors, job stories, business constraints, and non-functional requirements |
+| [Domain Design](docs/domain-design.md) | Domain model — entities, aggregates, events, bounded contexts, and context map |
 | [Local Deployment](docs/LocalDeployment.md) | Step-by-step guide to run and develop Control Plane locally |
 | [Minikube Deployment](docs/MinikubeDeployment.md) | Full Kubernetes deployment guide on Minikube (`golem-system`) |
 | [API Reference](docs/APIReference.md) | Complete REST API & WebSocket reference with schemas and curl examples |
-| [Architecture](docs/Architecture.md) | Components, protocols (MCP / A2A), security model, and end-to-end data flow |
-| [Security](docs/Security.md) | K8s RBAC, sandbox isolation, secrets management, and hardening roadmap |
-| [Roadmap](docs/Roadmap.md) | MVP sprint plan, delivery matrix, and post-MVP milestones |
+| [Architecture](docs/architecture.md) | Components, protocols (MCP / A2A), security model, and end-to-end data flow |
+| [Security](docs/security.md) | K8s RBAC, sandbox isolation, secrets management, and hardening roadmap |
+| [Roadmap](docs/roadmap.md) | MVP sprint plan, delivery matrix, and post-MVP milestones |
 | [Demos](docs/Demos.md) | Catalogue of 10 high-impact demos — what to show, to whom, and in what order |
 
 ---

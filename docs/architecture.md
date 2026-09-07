@@ -35,7 +35,7 @@ Golem is composed of three core components:
 
 - **Golem CLI (`golem`)**: Command-line interface built in Python with Typer. It serves as the primary administration and interaction client:
   - Context management (`golem cp *` to manage multiple control planes).
-  - Agent sandbox lifecycle (`golem agent create`, `list`, `status`, `delete`).
+  - Agent sandbox lifecycle (`golem agent create`, `list`, `status`, `update`, `delete`).
   - Interactive streaming chat (`golem chat --agent <id>`).
   - Conversation management (`golem conv list`, `new`, `delete`).
   - A2A task submission and inspection (`golem agent task-send`, `task-get`, `tasks`).
@@ -48,7 +48,7 @@ The **Golem Control Plane** is the central orchestrator and API gateway of the p
 
 | Module / Service | Responsibility |
 |---|---|
-| **REST & WebSocket API** | Exposes endpoints for agent lifecycle (`POST /agents`, `GET /agents`, `DELETE /agents/{id}`), conversations (`/conversations`), task submissions (`/tasks`), and task delegation (`POST /agents/{id}/delegate`). |
+| **REST & WebSocket API** | Exposes endpoints for agent lifecycle (`POST /agents`, `GET /agents`, `PUT /agents/{id}`, `DELETE /agents/{id}`), conversations (`/conversations`), task submissions (`/tasks`), and task delegation (`POST /agents/{id}/delegate`). |
 | **WebSocket Chat Proxy** | Single internal ClusterIP gateway (`WS /chat/{agent_id}?conversation_id=...`) that routes bi-directional token streaming directly to the agent's runner pod without per-pod Ingress. Auto-generates conversation titles on the first turn. |
 | **A2A Card Registry & Broker** | Maintains an in-memory registry of Agent Cards. Supports push registration (`POST /agents/{id}/handshake` called by runner at boot) and pull fallback (`GET /.well-known/agent.json`). Serves peer discovery queries (`GET /agents/{id}/card`) and brokers task delegation. |
 | **Kubernetes Provisioner** | Output adapter implementing the `Provisioner` interface. Translates an `AgentSpec` into a dedicated Kubernetes `Namespace`, `ConfigMap` (for `config.yaml`, `AGENTS.md`, `SKILL.md`), `Pod`, `ResourceQuota`, and `NetworkPolicy`. |
@@ -108,7 +108,7 @@ Inside the pod, the architecture is layered as follows:
 
 #### A2A (Agent-to-Agent Protocol) — Horizontal Delegation (`Agent ↔ Agent`)
 - Enables autonomous cooperation between agents.
-- Task lifecycle: `submitted → working → completed / failed`.
+- Task lifecycle: `submitted → running → completed / failed`.
 - In MVP1, agents delegate tasks via the Control Plane broker (`POST /agents/{source_agent_id}/delegate`), which forwards the payload to the target agent's `POST /a2a/tasks/send`.
 
 ---
@@ -138,13 +138,14 @@ src/golem-control-plane/
 │   ├── models.py                        ← AgentSpec, SandboxHandle, SandboxStatus,
 │   │                                       A2ATask, Conversation
 │   └── ports/                           ← Abstract contracts (interfaces) owned by the Domain
+│       ├── card_registry.py             ← CardRegistry port (Agent Card registry)
 │       ├── provisioner.py               ← Provisioner port (sandbox lifecycle)
 │       ├── sandbox_repo.py              ← SandboxRepository port (sandbox persistence)
 │       └── task_repo.py                 ← TaskRepository, ConversationRepository ports
 │
 ├── application/                         ← APPLICATION (use cases — no framework, no I/O)
 │   └── services/
-│       ├── agent_service.py             ← create / delete / list / status / handshake / GC loop
+│       ├── agent_service.py             ← create / update / delete / list / status / handshake / GC loop
 │       ├── task_service.py              ← submit / list / get / update / delegate
 │       ├── conversation_service.py      ← create / list / delete / auto-name
 │       └── chat_service.py             ← WebSocket proxy, active connection tracking
@@ -162,7 +163,7 @@ src/golem-control-plane/
 │       ├── app.py                       ← FastAPI bootstrap, dependency wiring, lifespan (~110 lines)
 │       ├── schemas.py                   ← Pydantic request / response DTOs
 │       └── routers/
-│           ├── agent_router.py          ← POST/GET/DELETE /agents, /handshake, /card
+│           ├── agent_router.py          ← POST/GET/PUT/DELETE /agents, /handshake, /card
 │           ├── task_router.py           ← POST/GET/PATCH /tasks, /delegate
 │           ├── conversation_router.py   ← POST/GET/DELETE /conversations
 │           └── chat_router.py          ← WS /chat/{agent_id}
@@ -189,16 +190,16 @@ src/golem-control-plane/
 │  Interfaces / api                                               │
 │  (FastAPI routers — HTTP glue only)                             │
 │                        │ calls                                  │
-│  ┌─────────────────────▼───────────────────────────────────┐   │
-│  │  Application / services                                 │   │
-│  │  (business logic, use cases, GC loop)                   │   │
-│  │                     │ uses ports                        │   │
-│  │  ┌──────────────────▼──────────────────────────────┐   │   │
-│  │  │  Domain                                         │   │   │
-│  │  │  models.py + ports/ (abstract interfaces)       │   │   │
-│  │  └──────────────────▲──────────────────────────────┘   │   │
-│  │                     │ implements                        │   │
-│  └─────────────────────┼───────────────────────────────────┘   │
+│  ┌─────────────────────▼───────────────────────────────────┐    │
+│  │  Application / services                                 │    │
+│  │  (business logic, use cases, GC loop)                   │    │
+│  │                     │ uses ports                        │    │
+│  │  ┌──────────────────▼──────────────────────────────┐    │    │
+│  │  │  Domain                                         │    │    │
+│  │  │  models.py + ports/ (abstract interfaces)       │    │    │
+│  │  └──────────────────▲──────────────────────────────┘    │    │
+│  │                     │ implements                        │    │
+│  └─────────────────────┼───────────────────────────────────┘    │
 │                        │                                        │
 │  Infrastructure / adapters                                      │
 │  (K8s, in-memory repos, card registry)                          │
@@ -212,7 +213,7 @@ All arrows point inward. The Domain is never aware of FastAPI, Kubernetes, or an
 Hexagonal Architecture distinguishes two kinds of ports:
 
 - **Driving ports** (left side): the outside world *calls* the application. In this codebase that is the HTTP/WebSocket API in `interfaces/api/`. A user or the Golem CLI initiates an action.
-- **Driven ports** (right side): the application *calls* the outside world. In this codebase those are `Provisioner`, `SandboxRepository`, `TaskRepository`, and `ConversationRepository` — all defined in `domain/ports/` and implemented in `infrastructure/adapters/`.
+- **Driven ports** (right side): the application *calls* the outside world. In this codebase those are `Provisioner`, `CardRegistry`, `SandboxRepository`, `TaskRepository`, and `ConversationRepository` — all defined in `domain/ports/` and implemented in `infrastructure/adapters/`.
 
 The Domain owns the contracts for both sides. Neither the HTTP framework nor the storage technology has any influence on the shape of the domain model.
 

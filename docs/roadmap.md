@@ -22,7 +22,7 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 | **Control Plane** | FastAPI service; Kubernetes Provisioner (Namespace + Pod + ConfigMap + ResourceQuota + NetworkPolicy per agent); TTL Garbage Collector; WebSocket chat proxy with multi-conversation support (`conversation_id`); auto-titling of conversations |
 | **A2A** | Agent Card (`/.well-known/agent.json`) published at runner boot; push handshake (`POST /agents/{id}/handshake`) + pull fallback; A2A task lifecycle (`submitted → working → completed / failed`); task delegation between agents (`POST /agents/{id}/delegate`) |
 | **Automations** | Background triggers in the runner: Cron, Timer, Webhook |
-| **CLI** | `golem cp *` — multi-context control plane management; `golem agent create/list/delete/status`; `golem agent tasks` / `golem agent task-send`; `golem chat`; `golem conv *` conversation management |
+| **CLI** | `golem cp *` — multi-context control plane management; `golem agent create/list/update/delete/status`; `golem agent tasks` / `golem agent task-send`; `golem chat`; `golem conv *` conversation management |
 | **Security** | K8s RBAC (least-privilege ClusterRole); per-sandbox NetworkPolicy (default-deny egress); ResourceQuota per agent; secrets injected via `envFrom` |
 
 ---
