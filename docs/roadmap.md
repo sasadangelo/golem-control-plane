@@ -68,14 +68,14 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 
 ## MVP 3 — Built-in Tools & `.golem/` Convention  `October 2026`
 
-**Goal:** Equip the agent runner with a rich set of built-in tools for filesystem navigation and command execution. Introduce the `.golem/` directory as the single workspace convention for system prompts, skills, and subagent definitions. Let operators restrict tool visibility per agent via `config.yaml`.
+**Goal:** Equip the agent runner with a rich set of built-in tools for filesystem navigation and command execution. Introduce the `.golem/` directory as the single workspace convention for system prompts, skills, and subagent definitions. Replace the current keyword-based skill injection with a `use_skill` built-in tool so the model decides when to load skill instructions. Add simple prompt-based subagent delegation (Bob/Claude style) so the model can discover and delegate to subagents without a full LangGraph multi-agent graph.
 
 **Wow demos unlocked:**
 - Deploy a coding agent that can read, edit, and search files in its workspace — no MCP server needed.
 - Lock a customer-facing agent to `http_check` only via a single `config.yaml` line — it cannot touch the filesystem.
-- Drop a `researcher.md` in `.golem/agents/` at creation time — the agent knows it has a researcher subagent ready to spawn.
+- Drop a `researcher.md` in `.golem/agents/` at creation time — the orchestrator agent discovers it, loads its instructions on demand with `use_agent`, and delegates tasks to it with full or no context inheritance.
 
-**Estimated effort: ~20 hours**
+**Estimated effort: ~27 hours**
 
 | Area | Est. hours |
 |---|:---:|
@@ -85,26 +85,35 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 | Search tools (`glob`, `grep`, `search_replace`) | 4h |
 | `insert_content` | 2h |
 | `config.yaml` tool visibility filter | 3h |
+| Skill injection refactor (`use_skill` tool) | 4h |
+| Simple subagent delegation (`use_agent` tool) | 3h |
 | Tests + docs | 3h |
 
 ### `.golem/` — Workspace Convention
 
 *`/app/.golem/` becomes the single root for all agent-owned files inside the runner. Previously flat paths are moved under this directory.*
 
+*Each skill is a **directory** containing its `SKILL.md` and any scripts or auxiliary files it needs — keeping everything a skill requires self-contained.*
+
 ```
 /app/.golem/
-  AGENTS.md          ← parent agent system prompt (was /app/AGENTS.md)
-  skills/            ← skill files (was /app/skills/)
-    k8s.md
-    python.md
-  agents/            ← subagent system prompts (new)
+  AGENTS.md                    ← parent agent system prompt (was /app/AGENTS.md)
+  skills/                      ← skill directories (was /app/skills/ flat files)
+    read-logs/
+      SKILL.md                 ← frontmatter + full instructions
+      parse_logs.sh            ← script owned by this skill
+    query-optimizer/
+      SKILL.md
+      analyze_query.py
+  agents/                      ← subagent system prompts
     researcher.md
     coder.md
 ```
 
 - [ ] Runner reads `AGENTS.md` from `/app/.golem/AGENTS.md`; fallback to `/app/AGENTS.md` for backward compatibility
 - [ ] Runner scans skills from `/app/.golem/skills/*/SKILL.md`; fallback to `/app/skills/` for backward compatibility
-- [ ] Runner discovers subagent definitions from `/app/.golem/agents/*.md` at boot; registers their names for use by `spawn_subagent` (MVP 6)
+- [ ] Each skill directory may contain scripts and auxiliary files alongside `SKILL.md`; the runner does not process them directly — they are referenced by the skill instructions and executed via `execute_command`
+- [ ] Runner discovers subagent definitions from `/app/.golem/agents/*.md` at boot; indexes their frontmatter for prompt injection and full content for `use_agent`
 - [ ] Control Plane mounts the entire `.golem/` directory as a single ConfigMap at agent creation time; no post-creation update in this MVP
 - [ ] CLI: `golem agent create --golem-dir .golem/` — uploads the whole directory; default path is `./.golem/` relative to the current directory
 
@@ -148,6 +157,43 @@ agent:
     - grep
     - http_check
 ```
+
+### Skill Injection Refactor — `use_skill` Built-in Tool
+
+*Replace the current keyword-matching injection (which injects the full skill content into the system prompt) with a model-driven approach: the system prompt carries only a lightweight skill index, and the model calls `use_skill` when it needs the full instructions.*
+
+**Current behaviour (MVP 1):** `_index_skills()` loads the full content of every skill at boot. `_build_system_prompt()` injects the full content of a matching skill into the `SystemMessage` on every model pass, based on a keyword match against the last human message. The model never sees the list of available skills — it receives the content already injected without having requested it.
+
+**New behaviour:**
+
+- [ ] `_index_skills()` parses the YAML frontmatter of each `SKILL.md` separately from the body; stores both `{name: frontmatter_str}` (for prompt injection) and `{name: full_content}` (for the `use_skill` tool)
+- [ ] `_build_system_prompt()` injects only the frontmatter index of all skills into the `SystemMessage`, followed by the instruction: *"Use the `use_skill(name)` tool to load the full instructions for a skill before applying it. Only load a skill when the user's request requires it. If the skill instructions are already visible in the recent message history, do not reload them."*; keyword matching removed
+- [ ] `use_skill(name: str)` built-in tool — always registered, not subject to the `agent.tools` allowlist; returns the full `SKILL.md` content as a `ToolMessage`; returns a helpful error listing available skill names if `name` is not found
+- [ ] The `SystemMessage` is now stable across all model passes within a turn — it no longer changes based on message content
+
+### Simple Subagent Delegation — `use_agent` Built-in Tool
+
+*Prompt-based subagent delegation following the Bob/Claude pattern: the model discovers available subagents from the system prompt, loads their full instructions on demand via `use_agent`, then delegates tasks via the existing `delegate_to_agent` tool. No LangGraph multi-agent graph is involved — everything happens inside the orchestrator's context window.*
+
+The orchestrator's system prompt includes a lightweight index of available subagents (name + one-line description from the frontmatter). When the model decides to delegate:
+1. It calls `use_agent(name)` to load the subagent's full system prompt as a `ToolMessage`.
+2. It calls `delegate_to_agent(name, task, inherit_context)` to hand off the task; `inherit_context` is read from the subagent's frontmatter and controls whether the parent's conversation history is forwarded.
+
+```
+SystemMessage: base_prompt + AGENTS.md + skill frontmatter index + agent frontmatter index
+
+HumanMessage:  "Analyse the orders query"
+AIMessage:     tool_call → use_agent("db-agent")
+ToolMessage:   [full content of db-agent.md]
+AIMessage:     tool_call → delegate_to_agent("db-agent", "Analyse the orders query", inherit_context=false)
+ToolMessage:   [subagent response]
+AIMessage:     "The db-agent found a missing index on orders.customer_id …"
+```
+
+- [ ] `_index_agents()` at runner boot: parses frontmatter (name, description, `inherit_context`) and full content of each `/app/.golem/agents/*.md`; stores both separately (frontmatter for prompt injection, full content for `use_agent`)
+- [ ] `_build_system_prompt()` extended: appends the agent frontmatter index after the skill index, followed by the instruction: *"Use `use_agent(name)` to load full instructions for a subagent. Use `delegate_to_agent(name, task)` to delegate a task. Load a subagent's instructions before delegating to understand its capabilities."*
+- [ ] `use_agent(name: str)` built-in tool — always registered, not subject to `agent.tools` allowlist; returns the full `.md` content of the named subagent as a `ToolMessage`; returns a helpful error listing available agent names if `name` is not found
+- [ ] `delegate_to_agent` updated to read `inherit_context` from the indexed agent frontmatter; `inherit_context: true` forwards the parent's full conversation history to the subagent; `inherit_context: false` (default) sends only the delegated task — giving the subagent a clean context window
 
 ---
 
