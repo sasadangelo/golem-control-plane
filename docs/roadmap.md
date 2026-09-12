@@ -64,6 +64,39 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 - [ ] TTL GC unchanged — calls `delete_sandbox` when TTL expires
 - [ ] `config.yaml`: `control-plane.provisioner: process`, `control-plane.runner_path: /path/to/golem-runner`
 
+### `golem start` — Single-Command Personal Assistant
+
+*Zero-friction entry point for personal assistant mode: one command from a fresh install to a running chat session.*
+
+- [ ] `golem start [--dir <path>]` — implicit singleton CP + agent workspace + chat REPL in one command; `--dir` defaults to `~` → workspace `~/.golem/default/`
+- [ ] Agent name is derived from the basename of `--dir` (e.g. `--dir ~/projects/myapp` → agent name `myapp`); bare `golem start` → agent name `default`
+- [ ] **CP singleton logic**: probe `~/.golem/config.yaml` for the CP port; if `/health` responds → reuse the running instance; otherwise start the CP as a background subprocess and write its PID + port to `~/.golem/config.yaml`
+- [ ] If `<path>/.golem/` does not exist → scaffold a minimal workspace: `AGENTS.md` with a generic identity and an empty `skills/` directory
+- [ ] If `<path>/.golem/` already exists → reuse it unchanged; the user personalises `AGENTS.md` with any text editor between sessions
+- [ ] After CP is confirmed up, call `golem agent create --golem-dir <path>/.golem/` (via `ProcessProvisioner`) and open the chat REPL
+- [ ] `golem stop [--dir <path>]` — deletes the agent for `<path>`; shuts down the CP only when no other agents are running (or immediately with `--force`)
+
+```
+~/.golem/
+  config.yaml          ← written at first `golem start`: CP port, PID, provider, model
+  default/             ← workspace for bare `golem start`
+    AGENTS.md          ← "You are a helpful assistant." (scaffolded on first start)
+    skills/            ← empty; user adds skill directories here
+
+~/projects/myapp/
+  .golem/              ← workspace for `golem start --dir ~/projects/myapp`
+    AGENTS.md          ← project-specific agent identity
+    skills/
+```
+
+```
+# Session 1
+golem start                     # boots CP on port 9000, writes ~/.golem/config.yaml, starts agent "default"
+
+# Session 2 (new terminal)
+golem start --dir ~/projects/myapp  # finds CP already up on port 9000, starts agent "myapp" alongside "default"
+```
+
 ---
 
 ## MVP 3 — Built-in Tools & `.golem/` Convention  `October 2026`
