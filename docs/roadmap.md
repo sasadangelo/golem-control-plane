@@ -195,6 +195,20 @@ AIMessage:     "The db-agent found a missing index on orders.customer_id …"
 - [ ] `use_agent(name: str)` built-in tool — always registered, not subject to `agent.tools` allowlist; returns the full `.md` content of the named subagent as a `ToolMessage`; returns a helpful error listing available agent names if `name` is not found
 - [ ] `delegate_to_agent` updated to read `inherit_context` from the indexed agent frontmatter; `inherit_context: true` forwards the parent's full conversation history to the subagent; `inherit_context: false` (default) sends only the delegated task — giving the subagent a clean context window
 
+### A2A Delegation — Non-Blocking Polling
+
+*The current `delegate_to_agent` tool uses synchronous `time.sleep()` inside the polling loop, blocking the runner thread for the entire duration of the delegated task. This prevents the runner from serving other requests while waiting.*
+
+- [ ] Make `delegate_to_agent` async — replace `time.sleep()` with `asyncio.sleep()` so the runner event loop remains free during polling
+
+### A2A Delegation — WebSocket Push Notification
+
+*Replace polling entirely: the runner opens a WebSocket connection to the Control Plane and receives a push notification when the delegated task reaches a terminal state (`completed` / `failed`). Eliminates the polling interval latency and the delegation timeout guesswork.*
+
+- [ ] Control Plane exposes a WebSocket endpoint for task completion notifications (e.g. `WS /agents/{id}/tasks/{task_id}/watch`)
+- [ ] `delegate_to_agent` connects to the WS endpoint after submitting the task and awaits the terminal event instead of polling
+- [ ] Fallback to async polling if the WS endpoint is unavailable (backward compatibility)
+
 ---
 
 ## MVP 4 — MCP Registry & Skill Registry  `November 2026`
