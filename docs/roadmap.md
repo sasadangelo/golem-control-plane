@@ -47,7 +47,7 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 
 ### Multi-Provider, Multi-Protocol, Multi-Model
 
-- [ ] Extract `golem-agent-sdk` — A2A lifecycle, Agent Card, handshake; **no LLM dependency**; importable by non-LLM agents
+- [x] Extract `golem-agent-sdk` — A2A lifecycle, Agent Card, handshake; **no LLM dependency**; importable by non-LLM agents
 - [ ] Extract `golem-framework` — LangGraph agentic loop + LLM Gateway abstraction; `golem-runner` becomes a thin entrypoint that imports both
 - [ ] **LLM Gateway — WatsonX** formalised as a `golem-framework` backend (`provider=watsonx`, `protocol=watsonx`) — behaviour unchanged
 - [ ] **LLM Gateway — OpenAI-compatible** (`protocol=openai`) — any OpenAI-compatible endpoint: public OpenAI, vLLM, LM Studio, Ollama `/v1`
