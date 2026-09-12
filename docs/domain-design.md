@@ -13,24 +13,24 @@ with skills and MCP tool servers.
 
 ## Ubiquitous Language
 
-| Term            | Definition                                                                                                   | Synonyms to avoid        |
-|-----------------|--------------------------------------------------------------------------------------------------------------|--------------------------|
-| `Agent`         | An LLM-powered autonomous runner provisioned as an isolated Kubernetes sandbox                               | "bot", "service"         |
-| `Sandbox`       | The set of Kubernetes resources (namespace, pod, ConfigMap, quotas, network policy) that isolates one Agent  | "environment", "container" |
-| `Persona`       | A role definition injected into the agent's system prompt via `AGENTS.md`                                    | "profile", "character"   |
-| `Skill`         | A declarative capability file (`SKILL.md`) loaded into the agent at startup                                  | "plugin", "module"       |
+| Term            | Definition                                                                                                   | Synonyms to avoid           |
+|-----------------|--------------------------------------------------------------------------------------------------------------|-----------------------------|
+| `Agent`         | An LLM-powered autonomous runner provisioned as an isolated Kubernetes sandbox                               | "bot", "service"            |
+| `Sandbox`       | The set of Kubernetes resources (namespace, pod, ConfigMap, quotas, network policy) that isolates one Agent  | "environment", "container"  |
+| `Persona`       | A role definition injected into the agent's system prompt via `AGENTS.md`                                    | "profile", "character"      |
+| `Skill`         | A declarative capability file (`SKILL.md`) loaded into the agent at startup                                  | "plugin", "module"          |
 | `MCPServer`     | An external Model Context Protocol server that exposes tools to the Agent at runtime                         | "tool server", "plugin server" |
-| `AgentCard`     | A JSON document at `/.well-known/agent.json` that advertises the Agent's capabilities for discovery          | "capability manifest"    |
-| `Task`          | A unit of work delegated from one Agent to another via the A2A protocol                                      | "job", "request"         |
-| `Conversation`  | A real-time chat session between an End User and an Agent, identified by a unique ID                         | "session", "thread"      |
+| `AgentCard`     | A JSON document at `/.well-known/agent.json` that advertises the Agent's capabilities for discovery          | "capability manifest"       |
+| `Task`          | A unit of work delegated from one Agent to another via the A2A protocol                                      | "job", "request"            |
+| `Conversation`  | A real-time chat session between an End User and an Agent, identified by a unique ID                         | "session", "thread"         |
 | `Message`       | A single turn within a Conversation, typed as `human`, `ai`, or `system`                                     | "chat message", "utterance" |
-| `MessageType`   | Discriminant of a Message: `human` (End User input), `ai` (LLM reply), `system` (Persona prompt)             | "role", "sender"         |
-| `Automation`    | A background trigger (Cron, Timer, Webhook) that starts a task on an Agent without human input               | "job", "scheduled task"  |
-| `Trigger`       | The rule that fires an Automation (cron expression, interval, or HTTP webhook config)                        | "event source"           |
-| `Context`       | A named CLI configuration pointing to a specific control plane endpoint                                      | "environment", "profile" |
-| `Secret`        | Sensitive config (API keys, tokens) injected into the sandbox via Kubernetes secrets                         | "credential", "token"    |
-| `Namespace`     | The Kubernetes namespace that belongs exclusively to one sandbox                                             | "cluster namespace"      |
-| `ResourceQuota` | CPU and memory limits applied to a sandbox namespace                                                         | "resource limits"        |
+| `MessageType`   | Discriminant of a Message: `human` (End User input), `ai` (LLM reply), `system` (Persona prompt)             | "role", "sender"            |
+| `Automation`    | A background trigger (Cron, Timer, Webhook) that starts a task on an Agent without human input               | "job", "scheduled task"     |
+| `Trigger`       | The rule that fires an Automation (cron expression, interval, or HTTP webhook config)                        | "event source"              |
+| `Context`       | A named CLI configuration pointing to a specific control plane endpoint                                      | "environment", "profile"    |
+| `Secret`        | Sensitive config (API keys, tokens) injected into the sandbox via Kubernetes secrets                         | "credential", "token"       |
+| `Namespace`     | The Kubernetes namespace that belongs exclusively to one sandbox                                             | "cluster namespace"         |
+| `ResourceQuota` | CPU and memory limits applied to a sandbox namespace                                                         | "resource limits"           |
 
 ---
 
