@@ -70,7 +70,8 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 
 - [ ] `golem start [--dir <path>]` — implicit singleton CP + agent workspace + chat REPL in one command; `--dir` defaults to `~` → workspace `~/.golem/default/`
 - [ ] Agent name is derived from the basename of `--dir` (e.g. `--dir ~/projects/myapp` → agent name `myapp`); bare `golem start` → agent name `default`
-- [ ] **CP singleton logic**: probe `~/.golem/config.yaml` for the CP port; if `/health` responds → reuse the running instance; otherwise start the CP as a background subprocess and write its PID + port to `~/.golem/config.yaml`
+- [ ] **CP singleton logic**: read port from `~/.golem/config.yaml` if present; probe `/health` on that port — if it responds → reuse the running instance; otherwise find the first free port starting from 9000, start the CP as a background subprocess on that port, and write its PID + port to `~/.golem/config.yaml`
+- [ ] **Port allocation**: neither the CP nor the runner uses a fixed port — both scan for the first free port at startup; the CP port is persisted to `~/.golem/config.yaml` so subsequent `golem start` calls can find it; runner ports are ephemeral and stored only in the `SandboxHandle`
 - [ ] If `<path>/.golem/` does not exist → scaffold a minimal workspace: `AGENTS.md` with a generic identity and an empty `skills/` directory
 - [ ] If `<path>/.golem/` already exists → reuse it unchanged; the user personalises `AGENTS.md` with any text editor between sessions
 - [ ] After CP is confirmed up, call `golem agent create --golem-dir <path>/.golem/` (via `ProcessProvisioner`) and open the chat REPL
