@@ -49,10 +49,10 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 
 - [x] Extract `golem-agent-sdk` — A2A lifecycle, Agent Card, handshake; **no LLM dependency**; importable by non-LLM agents
 - [x] Extract `golem-framework` — LangGraph agentic loop + LLM Gateway abstraction; `golem-runner` becomes a thin entrypoint that imports both
-- [ ] **LLM Gateway — WatsonX** formalised as a `golem-framework` backend (`provider=watsonx`, `protocol=watsonx`) — behaviour unchanged
-- [ ] **LLM Gateway — OpenAI-compatible** (`protocol=openai`) — any OpenAI-compatible endpoint: public OpenAI, vLLM, LM Studio, Ollama `/v1`
-- [ ] **LLM Gateway — Ollama native** (`provider=ollama`, `protocol=ollama`) — direct Ollama REST API
-- [ ] `config.yaml` `llm.provider` + `llm.protocol` selects the gateway at runner boot; no rebuild required
+- [x] **LLM Gateway — WatsonX** formalised as a `golem-framework` backend (`provider=watsonx`, `protocol=watsonx`) — behaviour unchanged
+- [x] **LLM Gateway — OpenAI-compatible** (`protocol=openai`) — any OpenAI-compatible endpoint: public OpenAI, vLLM, LM Studio, Ollama `/v1`
+- [x] **LLM Gateway — Ollama native** (`provider=ollama`, `protocol=ollama`) — direct Ollama REST API
+- [x] `config.yaml` `llm.provider` + `llm.protocol` selects the gateway at runner boot; no rebuild required
 
 ### `ProcessProvisioner` — Personal Assistant Mode
 
