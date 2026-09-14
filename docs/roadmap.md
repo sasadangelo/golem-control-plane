@@ -35,7 +35,7 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 - Deploy a Golem agent on **Ollama** running locally — zero IBM Cloud, zero API key, works offline.
 - Run `golem agent create` on your Mac — no Minikube, no Docker, just Python processes.
 
-**Estimated effort: ~17 hours**
+**Estimated effort: ~22 hours**
 
 | Area | Est. hours |
 |---|:---:|
@@ -44,6 +44,7 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 | LLM Gateway — OpenAI-compatible protocol | 3h |
 | LLM Gateway — Ollama native | 2h |
 | `ProcessProvisioner` | 2h |
+| Docker image refactor — `golem` user + `GOLEM_CONFIG_DIR` | 3h |
 
 ### Multi-Provider, Multi-Protocol, Multi-Model
 
@@ -62,7 +63,44 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 - [x] `delete_sandbox` — terminates the subprocess, removes `~/.golem/agents/<id>/`
 - [x] `get_status` — subprocess alive + `/health` responds → `RUNNING`; otherwise `FAILED`
 - [x] TTL GC unchanged — calls `delete_sandbox` when TTL expires
-- [x] `config.yaml`: `control-plane.provisioner: process`, `control-plane.runner_path: /path/to/golem-runner`
+- [x] `config.yaml`: `control-plane.provisioner: process`, `control-plane.runner_path: <base-dir>` (e.g. `~/.golem/runners`)
+
+### `ProcessProvisioner` — Runner Versioning & Isolation
+
+*Each agent declares the runner version it wants. The provisioner installs it on demand and launches from the versioned directory — the runner source is never mutated at runtime.*
+
+- [ ] `control-plane.runner_path` in CP `config.yaml` is the **base directory** for all runner versions (e.g. `~/.golem/runners`); it no longer points to a specific source dir
+- [ ] Runner `config.yaml` carries `control-plane.runner_version: "vX.Y.Z"` — the version this agent wants to run
+- [ ] `ProcessProvisioner.create_sandbox()` resolves `effective_path = runner_path / runner_version / "src" / "golem-runner"`; if the directory does not exist → clone/extract the release there; if it already exists → reuse as-is (idempotent)
+- [ ] Runner reads its workspace (config, AGENTS.md, skills) from the path in the `GOLEM_CONFIG_DIR` env var; `ProcessProvisioner` sets `GOLEM_CONFIG_DIR=~/.golem/agents/<id>/` in the subprocess environment — the runner source directory is never written to
+- [ ] `_build_env()` refactored: remove file copy logic, add `GOLEM_CONFIG_DIR` to subprocess env
+- [ ] `golem-runner` `core/config.py`: reads `_CONFIG_YAML` from `Path(os.environ["GOLEM_CONFIG_DIR"]) / "config.yaml"` when `GOLEM_CONFIG_DIR` is set; falls back to `Path(__file__).parent.parent / "config.yaml"` otherwise (backward compatible)
+
+```
+~/.golem/
+  runners/                          ← runner_path (base dir)
+    v0.1.0/
+      src/golem-runner/             ← effective_path; never mutated at runtime
+    v0.2.0/
+      src/golem-runner/
+  agents/
+    default/                        ← GOLEM_CONFIG_DIR for agent "default"
+      config.yaml                   ← includes control-plane.runner_version: "v0.1.0"
+      AGENTS.md
+      skills/
+    myapp/                          ← GOLEM_CONFIG_DIR for agent "myapp"
+      config.yaml                   ← includes control-plane.runner_version: "v0.2.0"
+      AGENTS.md
+      skills/
+```
+
+### Docker Image Refactor — `golem` user + `GOLEM_CONFIG_DIR`
+
+*Restructure the runner container to use a dedicated non-root user and align the file layout with the `GOLEM_CONFIG_DIR` convention — making process, Docker, and K8s provisioners all consistent.*
+
+- [ ] Runner image: create user `golem` (uid 1000), home `/home/golem`; app code installed at `/home/golem/src/golem-runner/`
+- [ ] Default `GOLEM_CONFIG_DIR=/home/golem/.golem` baked into the image env
+- [ ] `KubernetesProvisioner`: replace per-file `VolumeMount` sub_path entries with a single directory mount at `$GOLEM_CONFIG_DIR`; set `GOLEM_CONFIG_DIR` env var in the pod spec
 
 ### `golem start` — Single-Command Personal Assistant
 
@@ -125,30 +163,30 @@ golem start --dir ~/projects/myapp  # finds CP already up on port 9000, starts a
 
 ### `.golem/` — Workspace Convention
 
-*`/app/.golem/` becomes the single root for all agent-owned files inside the runner. Previously flat paths are moved under this directory.*
+*The workspace layout is unified across all provisioners. The runner reads its files from `GOLEM_CONFIG_DIR` (introduced in MVP 2). This MVP enriches that directory structure: skills become directories (not flat files), and a new `agents/` subfolder holds subagent definitions.*
 
 *Each skill is a **directory** containing its `SKILL.md` and any scripts or auxiliary files it needs — keeping everything a skill requires self-contained.*
 
 ```
-/app/.golem/
-  AGENTS.md                    ← parent agent system prompt (was /app/AGENTS.md)
-  skills/                      ← skill directories (was /app/skills/ flat files)
+<GOLEM_CONFIG_DIR>/              ← set by provisioner; e.g. ~/.golem/agents/<id>/ or /home/golem/.golem/
+  AGENTS.md                      ← agent system prompt
+  skills/                        ← skill directories (was flat *.md files)
     read-logs/
-      SKILL.md                 ← frontmatter + full instructions
-      parse_logs.sh            ← script owned by this skill
+      SKILL.md                   ← frontmatter + full instructions
+      parse_logs.sh              ← script owned by this skill
     query-optimizer/
       SKILL.md
       analyze_query.py
-  agents/                      ← subagent system prompts
+  agents/                        ← subagent system prompts (new in MVP 3)
     researcher.md
     coder.md
 ```
 
-- [ ] Runner reads `AGENTS.md` from `/app/.golem/AGENTS.md`; fallback to `/app/AGENTS.md` for backward compatibility
-- [ ] Runner scans skills from `/app/.golem/skills/*/SKILL.md`; fallback to `/app/skills/` for backward compatibility
+- [ ] Runner reads `AGENTS.md` from `$GOLEM_CONFIG_DIR/AGENTS.md`; fallback to `$GOLEM_CONFIG_DIR/../AGENTS.md` for backward compatibility
+- [ ] Runner scans skills from `$GOLEM_CONFIG_DIR/skills/*/SKILL.md` (directory layout); fallback to `$GOLEM_CONFIG_DIR/skills/*.md` flat files for backward compatibility
 - [ ] Each skill directory may contain scripts and auxiliary files alongside `SKILL.md`; the runner does not process them directly — they are referenced by the skill instructions and executed via `execute_command`
-- [ ] Runner discovers subagent definitions from `/app/.golem/agents/*.md` at boot; indexes their frontmatter for prompt injection and full content for `use_agent`
-- [ ] Control Plane mounts the entire `.golem/` directory as a single ConfigMap at agent creation time; no post-creation update in this MVP
+- [ ] Runner discovers subagent definitions from `$GOLEM_CONFIG_DIR/agents/*.md` at boot; indexes their frontmatter for prompt injection and full content for `use_agent`
+- [ ] K8s: Control Plane mounts the entire `.golem/` directory as a single ConfigMap and sets `GOLEM_CONFIG_DIR` env var in the pod; no post-creation update in this MVP
 - [ ] CLI: `golem agent create --golem-dir .golem/` — uploads the whole directory; default path is `./.golem/` relative to the current directory
 
 ### `execute_command` — Replaces `bash`
@@ -297,7 +335,7 @@ AIMessage:     "The db-agent found a missing index on orders.customer_id …"
 - `docker compose up` on a fresh machine — full Golem running in 2 minutes, no cluster.
 - Open Langfuse, watch every LLM call traced live with token counts and latencies.
 
-**Estimated effort: ~24 hours**
+**Estimated effort: ~21 hours**
 
 | Area | Est. hours |
 |---|:---:|
@@ -306,7 +344,7 @@ AIMessage:     "The db-agent found a missing index on orders.customer_id …"
 | Token breakdown per conversation | 3h |
 | Observability (external Langfuse) | 3h |
 | `DockerProvisioner` + Compose bundle | 4h |
-| Docker Hub CI + Helm Chart | 4h |
+| Docker Hub CI + Helm Chart | 1h |
 | CLI `--reasoning` flag | 2h |
 
 ### Resilience — Do Not Lose State on Restart
@@ -350,7 +388,7 @@ AIMessage:     "The db-agent found a missing index on orders.customer_id …"
 
 ### `DockerProvisioner` — Personal Assistant Mode
 
-- [ ] `create_sandbox` — `docker run -d` with a free host port; bind-mounts `~/.golem/agents/<id>/` into the container; returns `SandboxHandle(endpoint=http://localhost:<port>)`
+- [ ] `create_sandbox` — `docker run -d` with a free host port; bind-mounts `~/.golem/agents/<id>/` as `GOLEM_CONFIG_DIR` inside the container; returns `SandboxHandle(endpoint=http://localhost:<port>)`
 - [ ] `delete_sandbox` — `docker rm -f`; `get_status` — `docker inspect`
 - [ ] **`docker-compose` bundle** — single `docker-compose.yml` starts the control plane + pre-configured agents; `docker compose up` is the only command needed
 - [ ] `config.yaml`: `control-plane.provisioner: docker`
