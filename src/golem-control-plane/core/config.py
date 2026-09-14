@@ -36,6 +36,23 @@ class ControlPlaneConfig(BaseSettings):
     runner_image: str = Field(
         default="localhost/golem-runner:v0.0.1", description="Docker image used for agent runner pods."
     )
+    provisioner: str = Field(
+        default="",
+        description=(
+            "Provisioner backend to use. "
+            "Empty string or 'kubernetes' → KubernetesProvisioner (default). "
+            "'process' → ProcessProvisioner (personal assistant mode, no containers). "
+            "'mock' → MockProvisioner (local smoke-testing only)."
+        ),
+    )
+    runner_path: str = Field(
+        default="",
+        description=(
+            "Absolute path to the golem-runner source directory "
+            "(e.g. /home/user/golem-runner/src/golem-runner). "
+            "Required when provisioner='process'. Ignored by all other provisioners."
+        ),
+    )
 
 
 class LLMConfig(BaseSettings):

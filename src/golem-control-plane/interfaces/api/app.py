@@ -52,12 +52,22 @@ logger = LoggerManager.get_logger(name="ControlPlaneApp")
 
 
 def _build_provisioner() -> Provisioner:
-    """Return the provisioner configured in settings.
+    """Return the provisioner configured in ``settings.control_plane.provisioner``.
 
-    Uses ``MockProvisioner`` when ``test.provisioner == "mock"`` to allow
-    local smoke-testing without a Kubernetes cluster.
+    Selection order (first match wins):
+    - ``"process"`` → ProcessProvisioner (personal assistant mode, no containers)
+    - ``"mock"``    → MockProvisioner (local smoke-testing, legacy ``test.provisioner`` also accepted)
+    - anything else → KubernetesProvisioner (production default)
     """
-    if settings.test.provisioner == "mock":
+    provisioner_key = settings.control_plane.provisioner or settings.test.provisioner
+
+    if provisioner_key == "process":
+        from infrastructure.adapters.process_provisioner import ProcessProvisioner
+
+        logger.info("ProcessProvisioner active — personal assistant mode (no containers)")
+        return ProcessProvisioner()
+
+    if provisioner_key == "mock":
         from infrastructure.adapters.mock_provisioner import MockProvisioner
 
         logger.warning("MockProvisioner active — for local smoke-testing only, never use in production")

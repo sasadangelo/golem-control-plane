@@ -58,11 +58,11 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 
 *The lightest possible way to run Golem: no Docker, no Kubernetes, no containers — just Python.*
 
-- [ ] `create_sandbox` — writes `config.yaml` + `AGENTS.md` + skills to `~/.golem/agents/<id>/`, launches the runner as a background subprocess (`uv run python main.py`) on a free port; returns `SandboxHandle(endpoint=http://localhost:<port>)`
-- [ ] `delete_sandbox` — terminates the subprocess, removes `~/.golem/agents/<id>/`
-- [ ] `get_status` — subprocess alive + `/health` responds → `RUNNING`; otherwise `FAILED`
-- [ ] TTL GC unchanged — calls `delete_sandbox` when TTL expires
-- [ ] `config.yaml`: `control-plane.provisioner: process`, `control-plane.runner_path: /path/to/golem-runner`
+- [x] `create_sandbox` — writes `config.yaml` + `AGENTS.md` + skills to `~/.golem/agents/<id>/`, launches the runner as a background subprocess (`uv run uvicorn main:app`) on a free port; returns `SandboxHandle(endpoint=http://localhost:<port>)`
+- [x] `delete_sandbox` — terminates the subprocess, removes `~/.golem/agents/<id>/`
+- [x] `get_status` — subprocess alive + `/health` responds → `RUNNING`; otherwise `FAILED`
+- [x] TTL GC unchanged — calls `delete_sandbox` when TTL expires
+- [x] `config.yaml`: `control-plane.provisioner: process`, `control-plane.runner_path: /path/to/golem-runner`
 
 ### `golem start` — Single-Command Personal Assistant
 

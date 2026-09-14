@@ -53,6 +53,13 @@ class SandboxHandle(BaseModel):
     agent_id: str = Field(description="Agent identifier — also used as namespace and pod name prefix.")
     namespace: str = ""
     pod_name: str = ""
+    endpoint: str = Field(
+        default="",
+        description=(
+            "HTTP base URL of the running sandbox (e.g. http://localhost:54321). "
+            "Populated by ProcessProvisioner; empty for K8s sandboxes (address derived from namespace/pod_name)."
+        ),
+    )
     status: SandboxStatus = SandboxStatus.PENDING
     ttl_seconds: int | None = None
     agent_card: dict | None = None

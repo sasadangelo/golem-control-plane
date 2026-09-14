@@ -4,6 +4,8 @@ control-plane:
   workers: 1
   gc_interval: 60
   runner_image: "localhost/golem-runner:v0.0.1"
+  # provisioner: "process"   # process | mock | kubernetes (default when omitted)
+  # runner_path: "/path/to/golem-runner/src/golem-runner"   # required when provisioner=process
 
 llm:
   provider: "watsonx"
