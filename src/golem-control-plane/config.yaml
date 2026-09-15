@@ -3,9 +3,10 @@ control-plane:
   port: 9000
   workers: 1
   gc_interval: 60
-  runner_image: "localhost/golem-runner:v0.0.1"
-  # provisioner: "process"   # process | mock | kubernetes (default when omitted)
-  # runner_path: "/path/to/golem-runner/src/golem-runner"   # required when provisioner=process
+  runner_image: "localhost/golem-runner:v0.2.0"
+  # provisioner: "process"         # process | mock | kubernetes (default when omitted)
+  # runner_path: "~/.golem/runners" # base dir for all runner versions; required when provisioner=process
+  # runner_install_mode: "copy"    # copy (default) | editable
 
 llm:
   provider: "watsonx"

@@ -34,7 +34,7 @@ class ControlPlaneConfig(BaseSettings):
     workers: int = Field(default=1, description="Number of uvicorn worker processes.")
     gc_interval: int = Field(default=60, description="TTL garbage-collector polling interval in seconds.")
     runner_image: str = Field(
-        default="localhost/golem-runner:v0.0.1", description="Docker image used for agent runner pods."
+        default="localhost/golem-runner:v0.2.0", description="Docker image used for agent runner pods."
     )
     provisioner: str = Field(
         default="",
@@ -48,9 +48,20 @@ class ControlPlaneConfig(BaseSettings):
     runner_path: str = Field(
         default="",
         description=(
-            "Absolute path to the golem-runner source directory "
-            "(e.g. /home/user/golem-runner/src/golem-runner). "
+            "Base directory for all runner versions used by ProcessProvisioner "
+            "(e.g. ~/.golem/runners). Each version is stored as a subdirectory: "
+            "runner_path / agent_version / src / golem-runner. "
             "Required when provisioner='process'. Ignored by all other provisioners."
+        ),
+    )
+    runner_install_mode: str = Field(
+        default="copy",
+        description=(
+            "How ProcessProvisioner installs runner versions. "
+            "'copy' (default) — clones the release from GitHub automatically when the "
+            "versioned directory does not exist. "
+            "'editable' — expects the directory to already exist; nothing is downloaded; "
+            "changes to the source are picked up on the next subprocess start."
         ),
     )
 

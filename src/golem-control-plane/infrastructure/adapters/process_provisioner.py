@@ -4,17 +4,36 @@
 # -----------------------------------------------------------------------------
 """ProcessProvisioner — personal assistant mode (no containers, no Kubernetes).
 
-Launches each agent runner as a local subprocess via ``uv run python main.py``.
+Launches each agent runner as a local subprocess via ``uv run uvicorn main:app``.
 Sandbox files (config.yaml, AGENTS.md, skills) are written to
-``~/.golem/agents/<agent_id>/`` before the process starts.
+``~/.golem/agents/<agent_id>/`` and passed to the runner via the
+``GOLEM_CONFIG_DIR`` environment variable — the runner source directory is
+never written to at runtime.
 
-Enable via ``config.yaml``:
+The runner version is read from ``agent.version`` inside the agent's
+``config.yaml``.  The effective source directory is resolved as::
+
+    runner_path / agent_version / "src" / "golem-runner"
+
+Two install modes are supported (``control-plane.runner_install_mode`` in the
+CP ``config.yaml``):
+
+* **copy** (default) — the versioned directory is created by cloning the
+  release from GitHub if it does not already exist.
+* **editable** — the versioned directory must already exist (e.g. a manual
+  ``git clone`` or a symlink to the local working tree).  Nothing is
+  downloaded; changes to the source are picked up on the next subprocess
+  start.
+
+Enable via the Control Plane ``config.yaml``:
 
     control-plane:
       provisioner: process
-      runner_path: /absolute/path/to/golem-runner/src/golem-runner
+      runner_path: ~/.golem/runners        # base dir for all runner versions
+      runner_install_mode: copy            # copy (default) | editable
 """
 
+import os
 import shlex
 import shutil
 import socket
@@ -24,6 +43,7 @@ from subprocess import Popen  # nosec B404
 from typing import ClassVar
 
 import httpx
+import yaml
 from httpx._models import Response
 
 from core.config import settings
@@ -35,6 +55,12 @@ logger = LoggerManager.get_logger(name="ProcessProvisioner")
 
 # Base directory under which each agent's sandbox files are written.
 _GOLEM_AGENTS_DIR: Path = Path.home() / ".golem" / "agents"
+
+# Default runner version when not specified in the agent config.
+_DEFAULT_RUNNER_VERSION: str = "0.2.0"
+
+# GitHub repository used to clone runner releases on demand (copy mode only).
+_RUNNER_REPO: str = "https://github.com/sasadangelo/golem-runner"
 
 
 def _find_free_port() -> int:
@@ -50,17 +76,74 @@ def _check_uv() -> None:
         raise RuntimeError("'uv' not found in PATH. Install it from https://docs.astral.sh/uv/ and re-run.")
 
 
+def _check_git() -> None:
+    """Raise RuntimeError if ``git`` is not found in PATH."""
+    if shutil.which("git") is None:
+        raise RuntimeError("'git' not found in PATH. Install Git or place the runner manually at the expected path.")
+
+
+def _clone_runner(version: str, base_path: Path) -> Path:
+    """Clone the runner release tag into ``base_path / version``.
+
+    Args:
+        version: Git tag to clone (e.g. ``"0.2.0"``); the tag on GitHub is
+            prefixed with ``v`` (``v0.2.0``).
+        base_path: Base directory for all runner versions.
+
+    Returns:
+        The effective runner source path
+        ``base_path / version / "src" / "golem-runner"``.
+
+    Raises:
+        RuntimeError: If ``git`` is not available or the clone fails.
+    """
+    _check_git()
+    target = base_path / version
+    target.mkdir(parents=True, exist_ok=True)
+    tag = f"v{version}"
+    logger.info(f"Cloning runner {tag} into {target} …")
+    result = subprocess.run(  # nosec B603 B607
+        ["git", "clone", "--depth", "1", "--branch", tag, _RUNNER_REPO, str(target)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to clone runner {tag} from {_RUNNER_REPO}:\n{result.stderr}")
+    effective = target / "src" / "golem-runner"
+    if not effective.is_dir():
+        raise RuntimeError(f"Runner cloned to {target} but expected source dir not found: {effective}")
+    logger.info(f"Runner {tag} installed at {effective}")
+    return effective
+
+
 class ProcessProvisioner(Provisioner):
     """Provisions agent runners as local subprocesses.
 
-    Each sandbox is a directory ``~/.golem/agents/<agent_id>/`` that contains
-    the runner's ``config.yaml``, an optional ``AGENTS.md``, and any skill
-    files under ``skills/``.  The runner is started with
-    ``uv run python main.py`` from ``settings.control_plane.runner_path``.
+    Layout
+    ------
+    ``settings.control_plane.runner_path`` is the **base directory** for all
+    runner versions (e.g. ``~/.golem/runners``).  Each agent's
+    ``config.yaml`` carries ``agent.version`` which selects the versioned
+    subdirectory::
 
-    The subprocess's stdout and stderr are redirected to
-    ``~/.golem/agents/<agent_id>/runner.log`` so they do not pollute the
-    control-plane terminal.
+        runner_path / agent_version / src / golem-runner
+
+    In **copy** mode (default) the directory is created by cloning the
+    matching GitHub release tag if it does not yet exist.
+
+    In **editable** mode the directory must already exist — typically a
+    ``git clone`` of the working tree.  No download is attempted; changes
+    to the source are picked up on the next subprocess start, making this
+    ideal for runner development.
+
+    Each sandbox writes its workspace files to
+    ``~/.golem/agents/<agent_id>/`` and passes ``GOLEM_CONFIG_DIR`` pointing
+    there to the subprocess.  The runner source directory is **never** written
+    to at runtime.
+
+    Stdout and stderr of each subprocess are redirected to
+    ``~/.golem/agents/<agent_id>/runner.log``.
 
     ``get_status`` returns ``RUNNING`` only when the subprocess is alive
     **and** ``GET /health`` responds with HTTP 200.
@@ -68,18 +151,19 @@ class ProcessProvisioner(Provisioner):
 
     # In-memory map of agent_id → Popen handle.  Survives across calls within
     # the same process lifetime; lost on CP restart (acceptable for MVP).
-    _processes: ClassVar[dict[str, subprocess.Popen]] = {}  # type: ignore[type-arg]
+    _processes: ClassVar[dict[str, Popen]] = {}  # type: ignore[type-arg]
 
     def __init__(self) -> None:
         _check_uv()
         runner_path = settings.control_plane.runner_path
         if not runner_path:
             raise RuntimeError(
-                "control-plane.runner_path must be set when using ProcessProvisioner. Add it to config.yaml."
+                "control-plane.runner_path must be set when using ProcessProvisioner. "
+                "Add it to config.yaml (e.g. runner_path: ~/.golem/runners)."
             )
-        self._runner_path = Path(runner_path)
-        if not self._runner_path.is_dir():
-            raise RuntimeError(f"runner_path '{self._runner_path}' does not exist or is not a directory.")
+        self._base_path = Path(runner_path).expanduser()
+        self._base_path.mkdir(parents=True, exist_ok=True)
+        self._install_mode: str = settings.control_plane.runner_install_mode
 
     # ------------------------------------------------------------------
     # Public interface
@@ -88,15 +172,21 @@ class ProcessProvisioner(Provisioner):
     def create_sandbox(self, spec: AgentSpec) -> SandboxHandle:
         """Write sandbox files and launch the runner subprocess.
 
+        Reads ``agent.version`` from the agent's ``runner_config`` YAML to
+        select the runner version; falls back to ``_DEFAULT_RUNNER_VERSION``
+        when absent.  In copy mode the versioned directory is cloned from
+        GitHub on demand; in editable mode the directory must already exist.
+
         Args:
             spec: Agent specification carrying config, AGENTS.md, and skills.
 
         Returns:
             A SandboxHandle with status PENDING and endpoint set to
-            ``http://localhost:<port>``.
+            ``http://127.0.0.1:<port>``.
 
         Raises:
-            RuntimeError: If the subprocess cannot be started.
+            RuntimeError: If the subprocess cannot be started or the runner
+                directory is missing in editable mode.
         """
         sandbox_dir: Path = _GOLEM_AGENTS_DIR / spec.agent_id
         sandbox_dir.mkdir(parents=True, exist_ok=True)
@@ -106,14 +196,24 @@ class ProcessProvisioner(Provisioner):
 
         # Write optional AGENTS.md.
         if spec.agents_md is not None:
-            (sandbox_dir / "AGENTS.md").write_text(data=spec.agents_md, encoding="utf-8")
+            (sandbox_dir / "AGENTS.md").write_text(spec.agents_md, encoding="utf-8")
 
         # Write skill files under skills/.
         if spec.skills:
             skills_dir: Path = sandbox_dir / "skills"
             skills_dir.mkdir(exist_ok=True)
             for skill_name, skill_content in spec.skills.items():
-                (skills_dir / f"{skill_name}.md").write_text(data=skill_content, encoding="utf-8")
+                (skills_dir / f"{skill_name}.md").write_text(skill_content, encoding="utf-8")
+
+        # Resolve agent.version from runner config; fall back to default.
+        version = _DEFAULT_RUNNER_VERSION
+        try:
+            cfg = yaml.safe_load(spec.runner_config) or {}
+            version = cfg.get("agent", {}).get("version", _DEFAULT_RUNNER_VERSION)
+        except yaml.YAMLError:
+            pass
+
+        effective_path = self._resolve_runner_path(version)
 
         port: int = _find_free_port()
         log_file: Path = sandbox_dir / "runner.log"
@@ -128,19 +228,22 @@ class ProcessProvisioner(Provisioner):
             "--port",
             str(port),
         ]
-        logger.info(f"Launching runner for agent '{spec.agent_id}' on port {port}: {shlex.join(cmd)}")
+        logger.info(
+            f"Launching runner {version} ({self._install_mode}) for agent "
+            f"'{spec.agent_id}' on port {port}: {shlex.join(cmd)}"
+        )
 
         with log_file.open("w", encoding="utf-8") as log_fh:
             proc: Popen[bytes] = subprocess.Popen(  # nosec B603
                 cmd,
-                cwd=str(self._runner_path),
+                cwd=str(effective_path),
                 env=self._build_env(sandbox_dir),
                 stdout=log_fh,
                 stderr=log_fh,
             )
 
         self._processes[spec.agent_id] = proc
-        handle: SandboxHandle = SandboxHandle(
+        handle = SandboxHandle(
             agent_id=spec.agent_id,
             endpoint=f"http://127.0.0.1:{port}",
             ttl_seconds=spec.ttl_seconds,
@@ -176,8 +279,8 @@ class ProcessProvisioner(Provisioner):
             handle: The SandboxHandle to inspect.
 
         Returns:
-            Updated handle with status RUNNING if the subprocess is alive and
-            /health returns 200, otherwise FAILED.
+            Updated handle: RUNNING if subprocess alive and /health → 200,
+            FAILED otherwise.
         """
         proc = self._processes.get(handle.agent_id)
         if proc is None or proc.poll() is not None:
@@ -190,10 +293,7 @@ class ProcessProvisioner(Provisioner):
 
         try:
             response: Response = httpx.get(url=f"{handle.endpoint}/health", timeout=3.0)
-            if response.status_code == 200:
-                handle.status = SandboxStatus.RUNNING
-            else:
-                handle.status = SandboxStatus.FAILED
+            handle.status = SandboxStatus.RUNNING if response.status_code == 200 else SandboxStatus.FAILED
         except (OSError, httpx.HTTPError):
             handle.status = SandboxStatus.FAILED
 
@@ -203,50 +303,54 @@ class ProcessProvisioner(Provisioner):
     # Private helpers
     # ------------------------------------------------------------------
 
+    def _resolve_runner_path(self, version: str) -> Path:
+        """Return the effective runner source path for ``version``.
+
+        In **copy** mode: clones the release from GitHub if the versioned
+        directory does not exist yet.
+
+        In **editable** mode: expects the directory to already exist; raises
+        a clear error if it does not (no download attempted).
+
+        Args:
+            version: Runner version (e.g. ``"0.2.0"``).
+
+        Returns:
+            Path to ``runner_path / version / "src" / "golem-runner"``.
+
+        Raises:
+            RuntimeError: In editable mode when the directory is missing.
+        """
+        effective = self._base_path / version / "src" / "golem-runner"
+
+        if effective.is_dir():
+            return effective
+
+        if self._install_mode == "editable":
+            raise RuntimeError(
+                f"runner_install_mode=editable but runner directory not found: {effective}\n"
+                f"Create it manually, e.g.:\n"
+                f"  git clone https://github.com/sasadangelo/golem-runner "
+                f"{self._base_path / version}"
+            )
+
+        # copy mode — clone from GitHub on demand.
+        return _clone_runner(version, self._base_path)
+
     def _build_env(self, sandbox_dir: Path) -> dict[str, str]:
         """Build the subprocess environment.
 
-        Merges the current process environment with overrides that point the
-        runner at the sandbox-specific config.yaml.
+        Sets ``GOLEM_CONFIG_DIR`` to the sandbox directory so the runner
+        reads its workspace (config.yaml, AGENTS.md, skills/) from there.
+        The runner source directory is never written to.
 
         Args:
-            sandbox_dir: Path to the agent's sandbox directory.
+            sandbox_dir: Path to the agent's sandbox directory
+                (``~/.golem/agents/<agent_id>/``).
 
         Returns:
             A dict suitable for ``subprocess.Popen(env=...)``.
         """
-        import os
-
-        env: dict[str, str] = os.environ.copy()
-        # Tell the runner to load config from the sandbox directory instead of
-        # its own source tree.  The runner's Settings reads config.yaml from
-        # Path(__file__).parent.parent / "config.yaml" by default; overriding
-        # the working directory is not sufficient because config resolution is
-        # relative to the source file.  We pass the path via an env var that
-        # the runner can honour (future work); for now the runner reads from
-        # its own directory and we symlink/copy config.yaml there.
-        #
-        # Simpler approach for MVP: the runner reads config.yaml from CWD when
-        # the env var GOLEM_CONFIG_PATH is set — but the runner does not support
-        # that yet.  Instead we rely on the fact that `uv run` sets CWD to
-        # self._runner_path, and we write config.yaml directly into
-        # self._runner_path before launch, overwriting it per agent launch.
-        #
-        # TODO: teach the runner to honour GOLEM_CONFIG_PATH so multiple
-        # process-mode agents can run concurrently without clobbering each other.
-        config_src: Path = sandbox_dir / "config.yaml"
-        config_dst: Path = self._runner_path / "config.yaml"
-        shutil.copy2(str(config_src), str(config_dst))
-
-        agents_src: Path = sandbox_dir / "AGENTS.md"
-        if agents_src.exists():
-            shutil.copy2(str(agents_src), str(self._runner_path / "AGENTS.md"))
-
-        skills_src: Path = sandbox_dir / "skills"
-        if skills_src.is_dir():
-            skills_dst: Path = self._runner_path / "skills"
-            if skills_dst.exists():
-                shutil.rmtree(skills_dst)
-            shutil.copytree(src=str(skills_src), dst=str(skills_dst))
-
+        env = os.environ.copy()
+        env["GOLEM_CONFIG_DIR"] = str(sandbox_dir)
         return env
