@@ -69,27 +69,29 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
 
 *Each agent declares the runner version it wants. The provisioner installs it on demand and launches from the versioned directory — the runner source is never mutated at runtime.*
 
-- [ ] `control-plane.runner_path` in CP `config.yaml` is the **base directory** for all runner versions (e.g. `~/.golem/runners`); it no longer points to a specific source dir
-- [ ] Runner `config.yaml` carries `control-plane.runner_version: "vX.Y.Z"` — the version this agent wants to run
-- [ ] `ProcessProvisioner.create_sandbox()` resolves `effective_path = runner_path / runner_version / "src" / "golem-runner"`; if the directory does not exist → clone/extract the release there; if it already exists → reuse as-is (idempotent)
-- [ ] Runner reads its workspace (config, AGENTS.md, skills) from the path in the `GOLEM_CONFIG_DIR` env var; `ProcessProvisioner` sets `GOLEM_CONFIG_DIR=~/.golem/agents/<id>/` in the subprocess environment — the runner source directory is never written to
-- [ ] `_build_env()` refactored: remove file copy logic, add `GOLEM_CONFIG_DIR` to subprocess env
-- [ ] `golem-runner` `core/config.py`: reads `_CONFIG_YAML` from `Path(os.environ["GOLEM_CONFIG_DIR"]) / "config.yaml"` when `GOLEM_CONFIG_DIR` is set; falls back to `Path(__file__).parent.parent / "config.yaml"` otherwise (backward compatible)
+- [x] `control-plane.runner_path` in CP `config.yaml` is the **base directory** for all runner versions (e.g. `~/.golem/runners`); it no longer points to a specific source dir
+- [x] `agent.version` in runner `config.yaml` — the version this agent wants to run (default `0.2.0`); `ProcessProvisioner` resolves `effective_path = runner_path / agent_version / "src" / "golem-runner"`
+- [x] `ProcessProvisioner.create_sandbox()` resolves `effective_path`; in `copy` mode (default) clones the release from GitHub if the directory does not exist; in `editable` mode expects the directory to already exist — nothing is downloaded, changes to source are picked up on next start
+- [x] `control-plane.runner_install_mode: copy | editable` in CP `config.yaml` selects the install mode (default `copy`)
+- [x] Runner reads its workspace (config, AGENTS.md, skills) from `GOLEM_CONFIG_DIR` env var; `ProcessProvisioner` sets `GOLEM_CONFIG_DIR=~/.golem/agents/<id>/` — runner source directory never written to
+- [x] `_build_env()` refactored: file copy logic removed, `GOLEM_CONFIG_DIR` set in subprocess env
+- [x] `golem-runner` `core/config.py`: reads `_CONFIG_YAML` from `Path(os.environ["GOLEM_CONFIG_DIR"]) / "config.yaml"` when `GOLEM_CONFIG_DIR` is set; falls back to source-relative path otherwise (backward compatible)
+- [x] All 7 demo `config.yaml` files updated with `agent.version: "0.2.0"`
 
 ```
 ~/.golem/
   runners/                          ← runner_path (base dir)
-    v0.1.0/
+    0.1.0/
       src/golem-runner/             ← effective_path; never mutated at runtime
-    v0.2.0/
+    0.2.0/
       src/golem-runner/
   agents/
     default/                        ← GOLEM_CONFIG_DIR for agent "default"
-      config.yaml                   ← includes control-plane.runner_version: "v0.1.0"
+      config.yaml                   ← includes agent.version: "0.1.0"
       AGENTS.md
       skills/
     myapp/                          ← GOLEM_CONFIG_DIR for agent "myapp"
-      config.yaml                   ← includes control-plane.runner_version: "v0.2.0"
+      config.yaml                   ← includes agent.version: "0.2.0"
       AGENTS.md
       skills/
 ```
