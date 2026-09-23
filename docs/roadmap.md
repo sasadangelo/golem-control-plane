@@ -96,46 +96,72 @@ The MVP delivered a fully working **Agent-as-a-Service platform** running on Kub
       skills/
 ```
 
-### Docker Image Refactor — `golem` user + `GOLEM_CONFIG_DIR`
+### Docker Image Refactor — `golem` user + `GOLEM_CONFIG_DIR` ✅
 
 *Restructure the runner container to use a dedicated non-root user and align the file layout with the `GOLEM_CONFIG_DIR` convention — making process, Docker, and K8s provisioners all consistent.*
 
-- [ ] Runner image: create user `golem` (uid 1000), home `/home/golem`; app code installed at `/home/golem/src/golem-runner/`
-- [ ] Default `GOLEM_CONFIG_DIR=/home/golem/.golem` baked into the image env
-- [ ] `KubernetesProvisioner`: replace per-file `VolumeMount` sub_path entries with a single directory mount at `$GOLEM_CONFIG_DIR`; set `GOLEM_CONFIG_DIR` env var in the pod spec
+- [x] Runner image: create user `golem` (uid 1000), home `/home/golem`; repo root installed at `RUNNER_ROOT=/home/golem/.golem/runners/0.2.0/`; app code at `APP_DIR=$RUNNER_ROOT/src/golem-runner`; `.venv` created under `RUNNER_ROOT`; container runs as `USER golem`
+- [x] `GOLEM_CONFIG_DIR` is **not** baked into the image — injected at runtime by the provisioner as `/home/golem/.golem/agents/<agent_id>/`; consistent with `ProcessProvisioner` on the host
+- [x] `KubernetesProvisioner`: all `VolumeMount` entries now target `$GOLEM_CONFIG_DIR` (`/home/golem/.golem/agents/<agent_id>/`); `GOLEM_CONFIG_DIR` env var added to the pod spec
+- [x] `examples/demo-sre/agent/skills/inspect-env.md`: Step 3 updated to read from `$GOLEM_CONFIG_DIR` instead of hardcoded `/app`
 
 ### `golem start` — Single-Command Personal Assistant
 
 *Zero-friction entry point for personal assistant mode: one command from a fresh install to a running chat session.*
 
-- [ ] `golem start [--dir <path>]` — implicit singleton CP + agent workspace + chat REPL in one command; `--dir` defaults to `~` → workspace `~/.golem/default/`
-- [ ] Agent name is derived from the basename of `--dir` (e.g. `--dir ~/projects/myapp` → agent name `myapp`); bare `golem start` → agent name `default`
-- [ ] **CP singleton logic**: read port from `~/.golem/config.yaml` if present; probe `/health` on that port — if it responds → reuse the running instance; otherwise find the first free port starting from 9000, start the CP as a background subprocess on that port, and write its PID + port to `~/.golem/config.yaml`
-- [ ] **Port allocation**: neither the CP nor the runner uses a fixed port — both scan for the first free port at startup; the CP port is persisted to `~/.golem/config.yaml` so subsequent `golem start` calls can find it; runner ports are ephemeral and stored only in the `SandboxHandle`
-- [ ] If `<path>/.golem/` does not exist → scaffold a minimal workspace: `AGENTS.md` with a generic identity and an empty `skills/` directory
-- [ ] If `<path>/.golem/` already exists → reuse it unchanged; the user personalises `AGENTS.md` with any text editor between sessions
-- [ ] After CP is confirmed up, call `golem agent create --golem-dir <path>/.golem/` (via `ProcessProvisioner`) and open the chat REPL
-- [ ] `golem stop [--dir <path>]` — deletes the agent for `<path>`; shuts down the CP only when no other agents are running (or immediately with `--force`)
+All agent workspaces are stored in the **central registry** at `~/.golem/agents/<name>/` (Opzione A — Docker-style). The name is chosen by the user and must be unique on the local machine. This avoids ID collisions, enables `golem agent list` to enumerate all local agents, and keeps workspaces independent of project directory layout.
+
+- [ ] `golem start [<name>]` — implicit singleton CP + agent workspace + chat REPL in one command; `<name>` defaults to `default`
+- [ ] **Workspace resolution**: workspace is always `~/.golem/agents/<name>/`; if the directory does not exist it is scaffolded with a `config.yaml` template and an empty `AGENTS.md` + `skills/`; if it already exists it is reused unchanged
+- [ ] **`agent.id` in `config.yaml`**: set to `<name>` at scaffold time; stable across restarts; collision with an already-running agent → clear error from CP (409)
+- [ ] **CP singleton logic**: read port + PID from `~/.golem/cp.yaml` if present; probe `/health` — if it responds → reuse; otherwise find the first free port ≥ 9000, start CP as background subprocess, write PID + port to `~/.golem/cp.yaml`
+- [ ] **Port allocation**: CP port persisted in `~/.golem/cp.yaml`; runner ports are ephemeral, stored only in `SandboxHandle`
+- [ ] After CP is confirmed up, call `POST /agents` with the workspace `config.yaml` (via `ProcessProvisioner` which sets `GOLEM_CONFIG_DIR=~/.golem/agents/<name>/`) and open the chat REPL
+- [ ] `golem stop [<name>]` — deletes the agent sandbox for `<name>`; shuts down the CP only when no other agents are running (or immediately with `--force`)
+- [ ] `golem agent init <name>` — scaffolds `~/.golem/agents/<name>/` without starting anything; user edits `config.yaml` + `AGENTS.md` before running `golem start <name>`
+- [ ] `golem agent list` — lists all directories under `~/.golem/agents/` with their name, `agent.id` from `config.yaml`, and running status (probes CP if up)
 
 ```
 ~/.golem/
-  config.yaml          ← written at first `golem start`: CP port, PID, provider, model
-  default/             ← workspace for bare `golem start`
-    AGENTS.md          ← "You are a helpful assistant." (scaffolded on first start)
-    skills/            ← empty; user adds skill directories here
-
-~/projects/myapp/
-  .golem/              ← workspace for `golem start --dir ~/projects/myapp`
-    AGENTS.md          ← project-specific agent identity
-    skills/
+  cp.yaml                           ← written by `golem start`: CP port + PID
+  cli/
+    config.yaml                     ← golem CLI config (control planes, active conversations)
+  runners/                          ← runner_path (base dir, managed by ProcessProvisioner)
+    0.2.0/
+      src/golem-runner/             ← effective_path; never mutated at runtime
+      .venv/
+  agents/                           ← central registry of all local agent workspaces
+    default/                        ← GOLEM_CONFIG_DIR for `golem start`
+      config.yaml                   ← agent.id: "default", agent.version: "0.2.0", llm: ...
+      AGENTS.md                     ← "You are a helpful assistant." (scaffolded on first start)
+      skills/
+    sre-bot/                        ← GOLEM_CONFIG_DIR for `golem start sre-bot`
+      config.yaml                   ← agent.id: "sre-bot", agent.version: "0.2.0"
+      AGENTS.md
+      skills/
+        check-health.md
+        inspect-k8s.md
 ```
 
-```
-# Session 1
-golem start                     # boots CP on port 9000, writes ~/.golem/config.yaml, starts agent "default"
+```bash
+# First run — scaffolds workspace, boots CP, starts agent, opens chat
+golem start
 
-# Session 2 (new terminal)
-golem start --dir ~/projects/myapp  # finds CP already up on port 9000, starts agent "myapp" alongside "default"
+# Second terminal — CP already up, starts a second agent alongside "default"
+golem start sre-bot
+
+# Inspect all local agents
+golem agent list
+
+# Scaffold a workspace without starting (edit before use)
+golem agent init myapp
+$EDITOR ~/.golem/agents/myapp/config.yaml
+
+# Stop one agent; CP stays up if others are running
+golem stop sre-bot
+
+# Stop everything
+golem stop --force
 ```
 
 ---

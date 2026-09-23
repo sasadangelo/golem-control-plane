@@ -174,9 +174,17 @@ class KubernetesProvisioner(Provisioner):
                 raise
 
     def _create_pod(self, handle: SandboxHandle, spec: AgentSpec) -> None:
+        # Workspace directory for this agent — mirrors ProcessProvisioner on the host:
+        #   ~/.golem/agents/<agent_id>/
+        # The runner reads config.yaml, AGENTS.md and skills/ from here via
+        # GOLEM_CONFIG_DIR. The source tree (RUNNER_ROOT) is never written to.
+        _CONFIG_DIR = f"/home/golem/.golem/agents/{handle.agent_id}"
+
         # WATSONX_API_KEY is the only secret — passed as env var, not in config.yaml.
+        # GOLEM_CONFIG_DIR tells the runner where its workspace lives.
         env_vars = [
             client.V1EnvVar(name="WATSONX_API_KEY", value=settings.llm.api_key),
+            client.V1EnvVar(name="GOLEM_CONFIG_DIR", value=_CONFIG_DIR),
         ]
 
         # envFrom: mount secrets listed in spec.env_secrets as environment variables.
@@ -185,36 +193,33 @@ class KubernetesProvisioner(Provisioner):
             client.V1EnvFromSource(secret_ref=client.V1SecretEnvSource(name=name)) for name in spec.env_secrets
         ] or None
 
-        # Runner app-dir is /app/src/golem-runner — all files must be mounted there.
-        _APP_DIR = "/app/src/golem-runner"
-
-        # Always mount config.yaml.
+        # Always mount config.yaml into the agent workspace.
         volume_mounts = [
             client.V1VolumeMount(
                 name="runner-config",
-                mount_path=f"{_APP_DIR}/config.yaml",
+                mount_path=f"{_CONFIG_DIR}/config.yaml",
                 sub_path="config.yaml",
                 read_only=True,
             )
         ]
 
-        # Mount AGENTS.md at <app-dir>/AGENTS.md when provided.
+        # Mount AGENTS.md into the agent workspace when provided.
         if spec.agents_md is not None:
             volume_mounts.append(
                 client.V1VolumeMount(
                     name="runner-config",
-                    mount_path=f"{_APP_DIR}/AGENTS.md",
+                    mount_path=f"{_CONFIG_DIR}/AGENTS.md",
                     sub_path="AGENTS.md",
                     read_only=True,
                 )
             )
 
-        # Mount each skill at <app-dir>/skills/<name>.md.
+        # Mount each skill at <config-dir>/skills/<name>.md.
         for skill_name in spec.skills:
             volume_mounts.append(
                 client.V1VolumeMount(
                     name="runner-config",
-                    mount_path=f"{_APP_DIR}/skills/{skill_name}.md",
+                    mount_path=f"{_CONFIG_DIR}/skills/{skill_name}.md",
                     sub_path=f"skill-{skill_name}.md",
                     read_only=True,
                 )
